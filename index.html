@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="pt-PT">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Rumo à Carta</title>
+  <meta name="description" content="Prints dos testes de código da estrada, a dois.">
+  <meta name="theme-color" content="#0d4f9e">
+  <meta name="color-scheme" content="light dark">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Rumo à Carta">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- A carregar -->
+  <section id="screen-loading" class="screen center" aria-live="polite">
+    <div class="sign-card"><span class="wordmark">Rumo à Carta</span></div>
+    <p class="muted">A carregar…</p>
+  </section>
+
+  <!-- Falta configurar o config.js -->
+  <section id="screen-setup" class="screen center" hidden>
+    <div class="sign-card"><span class="wordmark">Rumo à Carta</span></div>
+    <h1 class="h1">Falta ligar a app ao Supabase</h1>
+    <p>Abre o ficheiro <strong>config.js</strong> e cola lá o endereço e a chave pública do teu projeto Supabase. O guia explica onde os encontrar.</p>
+  </section>
+
+  <!-- Erro ao carregar -->
+  <section id="screen-error" class="screen center" hidden>
+    <div class="sign-card"><span class="wordmark">Rumo à Carta</span></div>
+    <h1 class="h1">Não foi possível carregar</h1>
+    <p id="error-text">Verifica a ligação à internet e tenta outra vez.</p>
+    <button type="button" class="btn btn-primary" id="btn-retry">Tentar outra vez</button>
+    <button type="button" class="btn btn-ghost" id="btn-error-logout">Sair da conta</button>
+  </section>
+
+  <!-- Entrar -->
+  <section id="screen-login" class="screen center" hidden>
+    <div class="sign-card"><span class="wordmark">Rumo à Carta</span></div>
+    <p class="tagline">Código da estrada, a dois.</p>
+    <form id="form-login" class="form" novalidate>
+      <label class="field">
+        <span>Email</span>
+        <input type="email" id="login-email" autocomplete="email" inputmode="email" required>
+      </label>
+      <label class="field">
+        <span>Palavra-passe</span>
+        <input type="password" id="login-password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" id="login-error" role="alert" hidden></p>
+      <button type="submit" class="btn btn-primary" id="login-submit">Entrar</button>
+    </form>
+    <p class="small muted">Só entra quem tem conta. Esqueceste-te da palavra-passe? Pede a quem criou as contas para a repor.</p>
+  </section>
+
+  <!-- Escolher nome (primeira vez) -->
+  <section id="screen-name" class="screen center" hidden>
+    <div class="sign-card"><span class="wordmark">Rumo à Carta</span></div>
+    <h1 class="h1">Como te chamas?</h1>
+    <p>Este nome aparece junto dos teus prints.</p>
+    <form id="form-name" class="form" novalidate>
+      <label class="field">
+        <span>O teu nome</span>
+        <input type="text" id="name-input" maxlength="30" autocomplete="given-name" required>
+      </label>
+      <p class="form-error" id="name-error" role="alert" hidden></p>
+      <button type="submit" class="btn btn-primary" id="name-submit">Continuar</button>
+    </form>
+  </section>
+
+  <!-- App principal -->
+  <div id="screen-app" hidden>
+    <header class="sign">
+      <div class="sign-inner">
+        <h1 class="wordmark">Rumo à Carta</h1>
+        <button type="button" class="icon-btn" id="btn-refresh" aria-label="Atualizar">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+        </button>
+        <button type="button" class="avatar-btn" id="btn-menu" aria-label="A tua conta"></button>
+      </div>
+    </header>
+
+    <main id="main" class="main">
+      <div id="ios-tip" class="tip" hidden>
+        <p>Para instalar a app no iPhone: toca em <strong>Partilhar</strong> e depois em <strong>Adicionar ao ecrã principal</strong>.</p>
+        <button type="button" class="tip-close" id="btn-tip-close" aria-label="Fechar esta dica">Fechar</button>
+      </div>
+      <section id="view-mural" aria-label="Mural"></section>
+      <section id="view-biblioteca" aria-label="Biblioteca" hidden></section>
+    </main>
+
+    <nav class="nav" aria-label="Navegação principal">
+      <div class="nav-inner">
+        <button type="button" class="tab" data-view="mural" aria-current="page">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/></svg>
+          <span>Mural</span>
+        </button>
+        <div class="fab-slot">
+          <button type="button" class="fab" id="btn-new" aria-label="Publicar print">
+            <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <span class="fab-label" aria-hidden="true">Publicar</span>
+        </div>
+        <button type="button" class="tab" data-view="biblioteca">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>
+          <span>Biblioteca</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <!-- Publicar print -->
+  <dialog id="dlg-publish" aria-labelledby="publish-title">
+    <form id="form-publish" class="sheet" novalidate>
+      <h2 id="publish-title" class="h2">Publicar print</h2>
+      <input type="file" id="file-input" accept="image/*" hidden>
+      <button type="button" class="drop" id="btn-pick">
+        <span class="drop-empty" id="drop-empty">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-8 8"/></svg>
+          <strong>Escolher o print do resultado</strong>
+          <span class="small muted">Abre a galeria do telemóvel</span>
+        </span>
+        <img id="publish-preview" alt="Pré-visualização do print escolhido" hidden>
+      </button>
+      <label class="field">
+        <span>Nota (opcional)</span>
+        <textarea id="publish-note" rows="2" maxlength="200" placeholder="Ex.: 27 certas. Errei as de prioridades."></textarea>
+      </label>
+      <p class="form-error" id="publish-error" role="alert" hidden></p>
+      <p class="small muted" id="publish-status" aria-live="polite"></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="btn-publish-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="btn-publish-submit" disabled>Publicar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Ver print -->
+  <dialog id="dlg-view" class="viewer" aria-labelledby="view-title">
+    <div class="viewer-stage" id="view-stage">
+      <img id="view-img" alt="">
+    </div>
+    <div class="viewer-info">
+      <div class="viewer-who">
+        <span id="view-avatar"></span>
+        <div>
+          <p class="who-name" id="view-title"></p>
+          <p class="small viewer-muted" id="view-when"></p>
+        </div>
+      </div>
+      <p id="view-note" class="viewer-note" hidden></p>
+      <div class="actions viewer-actions">
+        <a class="btn btn-ghost-dark" id="view-open" target="_blank" rel="noopener">Abrir imagem</a>
+        <button type="button" class="btn btn-danger" id="view-delete" hidden>Apagar</button>
+        <button type="button" class="btn btn-light" id="view-close">Fechar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- A tua conta -->
+  <dialog id="dlg-menu" aria-labelledby="menu-title">
+    <form id="form-menu" class="sheet" novalidate>
+      <h2 id="menu-title" class="h2">A tua conta</h2>
+      <p class="small muted" id="menu-email"></p>
+      <label class="field">
+        <span>O teu nome</span>
+        <input type="text" id="menu-name" maxlength="30" autocomplete="given-name" required>
+      </label>
+      <p class="form-error" id="menu-error" role="alert" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="btn-menu-close">Fechar</button>
+        <button type="submit" class="btn btn-primary" id="btn-menu-save">Guardar nome</button>
+      </div>
+      <div class="menu-extra">
+        <button type="button" class="btn btn-ghost" id="btn-install" hidden>Instalar a app</button>
+        <button type="button" class="btn btn-danger-ghost" id="btn-logout">Sair da conta</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/dist/umd/supabase.js" integrity="sha384-TcHRA3zBbn+Lexh5n+Oil4guNPOS3rjNDpGRAN46u/s/mB2IZ50ceC6TYDU2yvgK" crossorigin="anonymous"></script>
+  <script src="app.js"></script>
+</body>
+</html>
