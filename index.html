@@ -88,8 +88,15 @@
 
     <main id="main" class="main">
       <div id="ios-tip" class="tip" hidden>
-        <p>Para instalar a app no iPhone: toca em <strong>Partilhar</strong> e depois em <strong>Adicionar ao ecrã principal</strong>.</p>
+        <p>Para instalar a app no iPhone (e receber as notificações): toca em <strong>Partilhar</strong> e depois em <strong>Adicionar ao ecrã principal</strong>. Abre-a a partir daí.</p>
         <button type="button" class="tip-close" id="btn-tip-close" aria-label="Fechar esta dica">Fechar</button>
+      </div>
+      <div id="notif-tip" class="tip" hidden>
+        <p><strong>Ativa as notificações</strong> para receberes os lembretes de teste ao longo do dia.</p>
+        <div class="tip-actions">
+          <button type="button" class="tip-close tip-go" id="btn-tip-notif-on">Ativar</button>
+          <button type="button" class="tip-close" id="btn-tip-notif-later" aria-label="Esconder este aviso">Agora não</button>
+        </div>
       </div>
       <section id="view-mural" aria-label="Mural"></section>
       <section id="view-biblioteca" aria-label="Biblioteca" hidden></section>
@@ -176,6 +183,14 @@
       <div class="actions">
         <button type="button" class="btn btn-ghost" id="btn-menu-close">Fechar</button>
         <button type="submit" class="btn btn-primary" id="btn-menu-save">Guardar nome</button>
+      </div>
+      <div class="menu-notif">
+        <h3 class="h3">Notificações</h3>
+        <p class="small muted" id="notif-status"></p>
+        <p class="form-error" id="notif-error" role="alert" hidden></p>
+        <button type="button" class="btn btn-primary" id="btn-notif-on" hidden>Ativar notificações</button>
+        <button type="button" class="btn btn-ghost" id="btn-notif-test" hidden>Enviar uma notificação de teste</button>
+        <button type="button" class="btn btn-ghost" id="btn-notif-off" hidden>Desativar neste telemóvel</button>
       </div>
       <div class="menu-extra">
         <button type="button" class="btn btn-ghost" id="btn-install" hidden>Instalar a app</button>

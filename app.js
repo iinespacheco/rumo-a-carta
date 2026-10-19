@@ -1,4 +1,4 @@
-/* Rumo à Carta — lógica da app (Fase 1: contas, mural e biblioteca de prints) */
+/* Rumo à Carta — lógica da app (contas, mural, biblioteca de prints e notificações) */
 (() => {
   'use strict';
 
@@ -180,6 +180,12 @@
     setView('mural');
     showScreen('app');
     maybeShowIosTip();
+    paintNotifTip();
+    syncPushQuietly();
+    if (new URLSearchParams(location.search).has('novo')) {
+      try { history.replaceState(null, '', location.pathname); } catch (e) { /* ignorar */ }
+      openNewPost();
+    }
     await loadPosts(true);
   }
 
@@ -579,6 +585,8 @@
     $('#menu-name').value = personOf(state.user.id).name;
     showError($('#menu-error'), '');
     $('#btn-install').hidden = !installPrompt;
+    showError($('#notif-error'), '');
+    paintNotifBox();
     openDialog($('#dlg-menu'));
   }
 
@@ -610,6 +618,186 @@
     try { await sb.auth.signOut(); } catch (err) { console.error(err); }
     resetState();
     showScreen('login');
+  }
+
+  /* ------------------------------------------------ notificações (Web Push) */
+  const pushSupported = () =>
+    'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+
+  function b64ToBytes(b64) {
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  }
+
+  const sameKey = (buf, bytes) => {
+    if (!buf) return false;
+    const a = new Uint8Array(buf);
+    return a.length === bytes.length && a.every((v, i) => v === bytes[i]);
+  };
+
+  async function currentPushSub() {
+    if (!pushSupported()) return null;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      return await reg.pushManager.getSubscription();
+    } catch (e) { return null; }
+  }
+
+  async function saveSubToServer(sub) {
+    const j = sub.toJSON();
+    const { error } = await sb.rpc('save_push_subscription', {
+      p_endpoint: j.endpoint,
+      p_p256dh: j.keys && j.keys.p256dh,
+      p_auth: j.keys && j.keys.auth,
+      p_ua: navigator.userAgent
+    });
+    if (error) throw error;
+  }
+
+  async function subscribeThisDevice() {
+    const { data: key, error } = await sb.rpc('get_vapid_public_key');
+    if (error) throw error;
+    if (!key) throw new Error('chave de envio ainda não existe');
+    const bytes = b64ToBytes(key);
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && !sameKey(sub.options && sub.options.applicationServerKey, bytes)) {
+      await sub.unsubscribe();
+      sub = null;
+    }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: bytes });
+    await saveSubToServer(sub);
+  }
+
+  // Ao abrir a app: se já deu permissão, garante que este telemóvel está
+  // registado para a conta que está com sessão (também apanha mudanças de conta).
+  async function syncPushQuietly() {
+    try {
+      if (!pushSupported() || Notification.permission !== 'granted' || !state.user) return;
+      await subscribeThisDevice();
+    } catch (err) { console.warn('push sync', err); }
+  }
+
+  function notifState() {
+    if (!pushSupported()) return isIos() && !isStandalone() ? 'ios-install' : 'unsupported';
+    if (Notification.permission === 'denied') return 'denied';
+    return Notification.permission === 'granted' ? 'granted' : 'default';
+  }
+
+  async function paintNotifBox() {
+    const st = notifState();
+    const status = $('#notif-status');
+    const on = $('#btn-notif-on'), test = $('#btn-notif-test'), off = $('#btn-notif-off');
+    on.hidden = test.hidden = off.hidden = true;
+    if (st === 'ios-install') {
+      status.textContent = 'No iPhone, as notificações só funcionam com a app instalada: toca em Partilhar, depois em Adicionar ao ecrã principal, e abre a app a partir do ícone novo.';
+    } else if (st === 'unsupported') {
+      status.textContent = 'Este navegador não suporta notificações.';
+    } else if (st === 'denied') {
+      status.textContent = isIos()
+        ? 'As notificações estão bloqueadas. Ativa-as em Definições do iPhone → Notificações → Rumo à Carta.'
+        : 'As notificações estão bloqueadas neste navegador. Ativa-as nas definições do site.';
+    } else {
+      const sub = st === 'granted' ? await currentPushSub() : null;
+      if (sub) {
+        status.textContent = 'Ativas neste telemóvel. Recebes 3 a 5 lembretes por dia, entre as 07:00 e as 22:00.';
+        test.hidden = false; off.hidden = false;
+      } else {
+        status.textContent = 'Recebe 3 a 5 lembretes por dia (entre as 07:00 e as 22:00) para fazeres um teste e publicares o print.';
+        on.hidden = false;
+      }
+    }
+  }
+
+  async function enableNotifications(errEl) {
+    // O pedido de permissão tem de acontecer logo no toque, por isso vem primeiro.
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') {
+      if (errEl) showError(errEl, 'Sem permissão não consigo enviar avisos. Podes mudar isto nas definições do telemóvel.');
+      return false;
+    }
+    try {
+      await subscribeThisDevice();
+      return true;
+    } catch (err) {
+      console.error(err);
+      if (errEl) showError(errEl, 'Não foi possível ativar. Confirma que a app está instalada no ecrã principal e tenta outra vez.');
+      return false;
+    }
+  }
+
+  async function onNotifOn() {
+    const btn = $('#btn-notif-on');
+    btn.disabled = true;
+    try {
+      if (await enableNotifications($('#notif-error'))) toast('Notificações ativadas.');
+    } finally {
+      btn.disabled = false;
+      paintNotifBox();
+      paintNotifTip();
+    }
+  }
+
+  async function onNotifOff() {
+    const btn = $('#btn-notif-off');
+    btn.disabled = true;
+    try {
+      const sub = await currentPushSub();
+      if (sub) {
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe();
+        await sb.rpc('remove_push_subscription', { p_endpoint: endpoint });
+      }
+      toast('Notificações desativadas neste telemóvel.');
+    } catch (err) {
+      console.error(err);
+      showError($('#notif-error'), 'Não foi possível desativar. Tenta outra vez.');
+    } finally {
+      btn.disabled = false;
+      paintNotifBox();
+    }
+  }
+
+  async function onNotifTest() {
+    const btn = $('#btn-notif-test');
+    btn.disabled = true;
+    showError($('#notif-error'), '');
+    try {
+      const { data, error } = await sb.functions.invoke('push-sender', { body: { action: 'test' } });
+      if (error) throw error;
+      if (!data || !data.sent) throw new Error('nada enviado');
+      toast('Teste enviado. Deve chegar em segundos.');
+    } catch (err) {
+      console.error(err);
+      showError($('#notif-error'), 'Não consegui enviar o teste. Tenta desativar e ativar outra vez.');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function paintNotifTip() {
+    let later = false;
+    try { later = localStorage.getItem('rumo-notif-tip') === '1'; } catch (e) { /* sem armazenamento */ }
+    $('#notif-tip').hidden = !(pushSupported() && Notification.permission === 'default' && !later);
+  }
+
+  async function onTipNotifOn() {
+    const btn = $('#btn-tip-notif-on');
+    btn.disabled = true;
+    try {
+      const ok = await enableNotifications(null);
+      toast(ok ? 'Notificações ativadas.' : 'Não foi possível ativar. Vê o menu da conta.');
+    } finally {
+      btn.disabled = false;
+      paintNotifTip();
+    }
+  }
+
+  function openNewPost() {
+    if (!state.user) return;
+    resetPublish();
+    openDialog($('#dlg-publish'));
   }
 
   /* ------------------------------------------------ instalar a app */
@@ -659,6 +847,21 @@
       $('#btn-install').hidden = true;
     });
 
+    $('#btn-notif-on').addEventListener('click', onNotifOn);
+    $('#btn-notif-off').addEventListener('click', onNotifOff);
+    $('#btn-notif-test').addEventListener('click', onNotifTest);
+    $('#btn-tip-notif-on').addEventListener('click', onTipNotifOn);
+    $('#btn-tip-notif-later').addEventListener('click', () => {
+      $('#notif-tip').hidden = true;
+      try { localStorage.setItem('rumo-notif-tip', '1'); } catch (e) { /* ignorar */ }
+    });
+    // Toque numa notificação com a app já aberta: o service worker avisa-nos
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'novo') openNewPost();
+      });
+    }
+
     $('#btn-tip-close').addEventListener('click', () => {
       $('#ios-tip').hidden = true;
       try { localStorage.setItem('rumo-ios-tip', '1'); } catch (e) { /* ignorar */ }
@@ -666,7 +869,7 @@
 
     $$('.tab').forEach((t) => t.addEventListener('click', () => setView(t.dataset.view)));
 
-    $('#btn-new').addEventListener('click', () => { resetPublish(); openDialog($('#dlg-publish')); });
+    $('#btn-new').addEventListener('click', openNewPost);
     $('#btn-pick').addEventListener('click', () => $('#file-input').click());
     $('#file-input').addEventListener('change', onFilePicked);
     $('#btn-publish-cancel').addEventListener('click', () => { closeDialog($('#dlg-publish')); resetPublish(); });

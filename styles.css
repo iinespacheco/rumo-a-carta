@@ -267,6 +267,11 @@ dialog[open] { animation: rise .22s ease-out; }
 @media (min-width: 600px) { dialog { margin: auto; border-radius: 20px; } }
 
 .sheet { display: flex; flex-direction: column; gap: 14px; padding: 20px 18px calc(18px + env(safe-area-inset-bottom)); }
+.h3 { margin: 0; font-family: var(--display); font-weight: 700; font-size: 20px; line-height: 1.1; }
+.menu-notif { display: flex; flex-direction: column; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); margin-top: 4px; }
+.menu-notif .btn { width: 100%; }
+.tip-actions { display: flex; flex-direction: column; gap: 8px; flex: none; }
+.tip-go { background: var(--blue); border-color: var(--blue); color: #fff; }
 .menu-extra { display: flex; flex-direction: column; gap: 10px; padding-top: 6px; border-top: 1px solid var(--line); margin-top: 4px; }
 .menu-extra .btn { width: 100%; }
 

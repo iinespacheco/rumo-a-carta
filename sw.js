@@ -2,9 +2,9 @@
 // Guarda os ficheiros da app para abrir mais depressa e mostrar o ecrã
 // inicial mesmo sem ligação. Tenta sempre a rede primeiro, por isso as
 // atualizações aparecem logo que fizeres upload de ficheiros novos.
-// (As notificações da Fase 2 vão ser acrescentadas aqui.)
+// Também mostra as notificações (Web Push) e abre a app quando tocas nelas.
 
-const VERSION = 'rumo-v2';
+const VERSION = 'rumo-v3';
 const SHELL = [
   './',
   'index.html',
@@ -53,5 +53,37 @@ self.addEventListener('fetch', (event) => {
           return Response.error();
         })
       )
+  );
+});
+
+/* ------------------------------------------------ notificações */
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }
+  // No iPhone todos os avisos recebidos têm de ser mostrados, por isso mostramos sempre.
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Rumo à Carta', {
+      body: data.body || 'Está na hora de um teste de código! 🚗',
+      icon: 'icon-192.png',
+      badge: 'icon-192.png',
+      data: { url: data.url || './?novo=1' }
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = new URL((event.notification.data && event.notification.data.url) || './?novo=1', self.registration.scope);
+  const wantsNew = target.searchParams.has('novo');
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
+          if (wantsNew) client.postMessage({ type: 'novo' });
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(target.href);
+    })
   );
 });
