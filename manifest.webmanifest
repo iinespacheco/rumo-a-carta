@@ -1,14 +1,14 @@
 {
-  "name": "Rumo à Carta",
-  "short_name": "Rumo à Carta",
-  "description": "Prints dos testes de código da estrada, a dois.",
+  "name": "rumo à carta",
+  "short_name": "rumo à carta",
+  "description": "prints dos testes de código da estrada, a dois.",
   "lang": "pt-PT",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0d4f9e",
-  "theme_color": "#0d4f9e",
+  "background_color": "#fbf6e9",
+  "theme_color": "#fbf6e9",
   "icons": [
     {
       "src": "icon-192.png",

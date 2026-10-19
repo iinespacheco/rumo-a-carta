@@ -1,20 +1,27 @@
-/* Rumo à Carta — lógica da app (contas, mural, biblioteca de prints e notificações) */
+/* rumo à carta — lógica da app (contas, mural, comentários, perfis, biblioteca e notificações) */
 (() => {
   'use strict';
 
   const cfg = window.RUMO_CONFIG || {};
+  const AV = window.RUMO_AVATARS;
   const BUCKET = 'prints';
   const PAGE = 30;               // prints carregados de cada vez
   const SIGN_SECONDS = 3600;     // validade dos links privados das imagens
   const STALE_MS = 60 * 1000;    // ao voltar à app, atualiza se passou mais de 1 minuto
+  const PASS_MARK = 27;          // certas (em 30) para passar no exame
+  const TZ = 'Europe/Lisbon';
 
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   const state = {
     user: null,
-    profiles: new Map(),   // id -> { id, name, idx }
+    profiles: new Map(),   // id -> { id, name, avatar, idx }
     posts: [],
+    comments: new Map(),   // post_id -> [comentários, do mais antigo para o mais recente]
+    stats: new Map(),      // user_id -> linha de profile_stats()
+    expanded: new Set(),   // prints com todos os comentários à vista
+    drafts: new Map(),     // post_id -> comentário por enviar
     hasMore: false,
     view: 'mural',
     filter: 'all',
@@ -27,15 +34,16 @@
   let installPrompt = null;
   let toastTimer = null;
   let deleteTimer = null;
+  let commentDelTimer = null;
   let pickedFile = null;
   let previewUrl = null;
+  let menuAvatar = null;
+  let nameAvatar = null;
 
   /* ------------------------------------------------ utilitários */
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
-
-  const initial = (name) => (Array.from(String(name || '?').trim())[0] || '?').toUpperCase();
 
   function uuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -65,41 +73,67 @@
     $('#screen-app').hidden = name !== 'app';
   }
 
-  /* ------------------------------------------------ datas */
-  const fmtTime = new Intl.DateTimeFormat('pt-PT', { hour: '2-digit', minute: '2-digit' });
-  const fmtDayShort = new Intl.DateTimeFormat('pt-PT', { day: 'numeric', month: 'short' });
-  const fmtDayLong = new Intl.DateTimeFormat('pt-PT', { weekday: 'long', day: 'numeric', month: 'long' });
-  const fmtKey = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+  /* ------------------------------------------------ datas (sempre hora de lisboa) */
+  const fmtTime = new Intl.DateTimeFormat('pt-PT', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+  const fmtDayShort = new Intl.DateTimeFormat('pt-PT', { timeZone: TZ, day: 'numeric', month: 'short' });
+  const fmtDayLong = new Intl.DateTimeFormat('pt-PT', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' });
+  const fmtKey = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
 
   const dayKey = (d) => fmtKey.format(d);
-  const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d; };
-  const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  function addDays(key, n) {
+    const [y, m, d] = key.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+  }
 
   function whenLabel(iso) {
     const d = new Date(iso);
     const key = dayKey(d);
+    const today = dayKey(new Date());
     const time = fmtTime.format(d);
-    if (key === dayKey(new Date())) return 'Hoje, ' + time;
-    if (key === dayKey(daysAgo(1))) return 'Ontem, ' + time;
+    if (key === today) return 'hoje, ' + time;
+    if (key === addDays(today, -1)) return 'ontem, ' + time;
     return fmtDayShort.format(d) + ', ' + time;
   }
 
   function dayHeading(iso) {
     const d = new Date(iso);
     const key = dayKey(d);
-    if (key === dayKey(new Date())) return 'Hoje';
-    if (key === dayKey(daysAgo(1))) return 'Ontem';
-    return capitalize(fmtDayLong.format(d));
+    const today = dayKey(new Date());
+    if (key === today) return 'hoje';
+    if (key === addDays(today, -1)) return 'ontem';
+    return fmtDayLong.format(d);
   }
 
-  /* ------------------------------------------------ pessoas */
+  /* ------------------------------------------------ pessoas e avatares */
   function personOf(uid) {
-    return state.profiles.get(uid) || { id: uid, name: 'Alguém', idx: 0 };
+    return state.profiles.get(uid) || { id: uid, name: 'alguém', avatar: null, idx: 0 };
+  }
+
+  function avatarKeyOf(uid) {
+    const p = personOf(uid);
+    return p.avatar && AV.has(p.avatar) ? p.avatar : AV.keyAt(p.idx);
   }
 
   function avatarHtml(uid, extra = '') {
-    const p = personOf(uid);
-    return `<span class="avatar who-${p.idx % 2} ${extra}" aria-hidden="true">${esc(initial(p.name))}</span>`;
+    return `<span class="avatar ${extra}" aria-hidden="true">${AV.svg(avatarKeyOf(uid))}</span>`;
+  }
+
+  function renderAvatarPicker(box, selected, onPick) {
+    box.innerHTML = AV.list.map((a) =>
+      `<button type="button" class="av-opt" role="radio" aria-checked="${a.key === selected}" data-av="${a.key}" aria-label="${esc(a.label)}">${AV.svg(a.key)}</button>`
+    ).join('');
+    box.onclick = (e) => {
+      const b = e.target.closest('.av-opt');
+      if (!b) return;
+      $$('.av-opt', box).forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+      onPick(b.dataset.av);
+    };
+  }
+
+  function paintHeroes() {
+    $$('[data-hero]').forEach((el) => { el.innerHTML = AV.svg(el.dataset.hero || 'carro'); });
   }
 
   /* ------------------------------------------------ arranque */
@@ -110,6 +144,7 @@
   }
 
   async function boot() {
+    paintHeroes();
     bindEvents();
     registerServiceWorker();
 
@@ -143,6 +178,10 @@
     state.user = null;
     state.profiles = new Map();
     state.posts = [];
+    state.comments = new Map();
+    state.stats = new Map();
+    state.expanded = new Set();
+    state.drafts = new Map();
     state.hasMore = false;
     state.filter = 'all';
     state.view = 'mural';
@@ -154,8 +193,8 @@
   function showLoadError(err) {
     console.error(err);
     $('#error-text').textContent = navigator.onLine === false
-      ? 'Sem ligação à internet. Liga-te e tenta outra vez.'
-      : 'Algo correu mal ao falar com o servidor. Tenta outra vez dentro de instantes.';
+      ? 'sem ligação à internet. liga-te e tenta outra vez.'
+      : 'algo correu mal ao falar com o servidor. tenta outra vez dentro de instantes.';
     showScreen('error');
   }
 
@@ -165,6 +204,8 @@
     try {
       await loadProfiles();
       if (!state.profiles.has(user.id)) {
+        nameAvatar = AV.keyAt(state.profiles.size);
+        renderAvatarPicker($('#name-avatars'), nameAvatar, (k) => { nameAvatar = k; });
         showScreen('name');
         setTimeout(() => $('#name-input').focus(), 50);
         return;
@@ -191,9 +232,9 @@
 
   /* ------------------------------------------------ dados */
   async function loadProfiles() {
-    const { data, error } = await sb.from('profiles').select('id,name,created_at').order('created_at', { ascending: true });
+    const { data, error } = await sb.from('profiles').select('id,name,avatar,created_at').order('created_at', { ascending: true });
     if (error) throw error;
-    state.profiles = new Map(data.map((p, i) => [p.id, { id: p.id, name: p.name, idx: i }]));
+    state.profiles = new Map(data.map((p, i) => [p.id, { id: p.id, name: p.name, avatar: p.avatar || null, idx: i }]));
   }
 
   async function signUrls(rows) {
@@ -205,20 +246,51 @@
     return new Map(data.filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]));
   }
 
+  async function loadComments(ids, reset) {
+    if (reset) state.comments = new Map();
+    if (!ids.length) return;
+    try {
+      const { data, error } = await sb
+        .from('comments')
+        .select('id,post_id,user_id,body,created_at')
+        .in('post_id', ids)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      ids.forEach((id) => state.comments.set(id, []));
+      data.forEach((c) => state.comments.get(c.post_id).push(c));
+    } catch (err) {
+      console.warn('comentários', err);   // os prints aparecem na mesma
+    }
+  }
+
+  async function loadStats() {
+    try {
+      const { data, error } = await sb.rpc('profile_stats');
+      if (error) throw error;
+      state.stats = new Map(data.map((r) => [r.user_id, r]));
+      paintStreak();
+      if (state.view === 'perfis') renderPerfis();
+    } catch (err) {
+      console.warn('estatísticas', err);
+    }
+  }
+
   async function loadPosts(reset) {
     if (state.loading) return;
     state.loading = true;
     $('#btn-refresh').setAttribute('aria-busy', 'true');
+    if (reset) loadStats();
     try {
       const from = reset ? 0 : state.posts.length;
       const { data, error } = await sb
         .from('posts')
-        .select('id,user_id,image_path,thumb_path,note,created_at')
+        .select('id,user_id,image_path,thumb_path,note,correct,created_at')
         .order('created_at', { ascending: false })
         .range(from, from + PAGE - 1);
       if (error) throw error;
 
       const urls = await signUrls(data);
+      await loadComments(data.map((r) => r.id), reset);
       const rows = data.map((r) => ({
         ...r,
         urlFull: urls.get(r.image_path) || '',
@@ -231,7 +303,7 @@
       render();
     } catch (err) {
       console.error(err);
-      toast(navigator.onLine === false ? 'Sem ligação. Tenta outra vez.' : 'Não foi possível atualizar. Tenta outra vez.');
+      toast(navigator.onLine === false ? 'sem ligação. tenta outra vez.' : 'não foi possível atualizar. tenta outra vez.');
     } finally {
       state.loading = false;
       $('#btn-refresh').removeAttribute('aria-busy');
@@ -242,13 +314,25 @@
   function paintHeader() {
     const me = personOf(state.user.id);
     $('#btn-menu').innerHTML = avatarHtml(state.user.id, 'avatar-lg');
-    $('#btn-menu').setAttribute('aria-label', 'A tua conta: ' + me.name);
+    $('#btn-menu').setAttribute('aria-label', 'o teu perfil: ' + me.name);
+    paintStreak();
+  }
+
+  function paintStreak() {
+    const pill = $('#hdr-streak');
+    const s = state.user && state.stats.get(state.user.id);
+    pill.hidden = !s;
+    if (!s) return;
+    $('#hdr-streak-n').textContent = String(s.streak || 0);
+    pill.classList.toggle('off', !s.streak);
+    pill.title = s.streak ? plural(s.streak, 'dia seguido', 'dias seguidos') + ' com prints' : 'publica hoje para começar o streak';
   }
 
   function setView(view) {
     state.view = view;
     $('#view-mural').hidden = view !== 'mural';
     $('#view-biblioteca').hidden = view !== 'biblioteca';
+    $('#view-perfis').hidden = view !== 'perfis';
     $$('.tab').forEach((t) => {
       if (t.dataset.view === view) t.setAttribute('aria-current', 'page');
       else t.removeAttribute('aria-current');
@@ -260,41 +344,88 @@
   function render() {
     if (!state.user) return;
     if (state.view === 'mural') renderMural();
-    else renderBiblioteca();
+    else if (state.view === 'biblioteca') renderBiblioteca();
+    else renderPerfis();
   }
 
-  function emptyHtml(title, text) {
-    return `<div class="empty"><h2 class="h2">${esc(title)}</h2><p>${esc(text)}</p></div>`;
+  function emptyHtml(title, text, avatar = 'nuvem') {
+    return `<div class="empty"><span class="avatar">${AV.svg(avatar)}</span><h2 class="h2">${esc(title)}</h2><p>${esc(text)}</p></div>`;
+  }
+
+  function scoreHtml(c) {
+    if (c == null) return '';
+    const pass = c >= PASS_MARK;
+    const tick = pass ? '<svg width="16" height="16" class="ico ico-bold" aria-hidden="true"><use href="#i-check"/></svg>' : '';
+    return `<span class="score ${pass ? 'pass' : ''}" title="${c} certas em 30">${tick}${c}<small>/30</small></span>`;
+  }
+
+  /* comentários */
+  function commentsBody(post) {
+    const list = state.comments.get(post.id) || [];
+    const collapsed = list.length > 3 && !state.expanded.has(post.id);
+    const shown = collapsed ? list.slice(-2) : list;
+    const more = collapsed
+      ? `<button type="button" class="c-more" data-expand="${esc(post.id)}">ver os ${list.length} comentários</button>`
+      : '';
+    const items = shown.map((c) => {
+      const mine = c.user_id === state.user.id;
+      const canDelete = mine || post.user_id === state.user.id;
+      return `<li class="citem ${mine ? 'mine' : ''}">
+        ${avatarHtml(c.user_id, 'avatar-xs')}
+        <div class="cbubble"><b>${esc(personOf(c.user_id).name)}</b><span class="ctext">${esc(c.body)}</span><time datetime="${esc(c.created_at)}">${esc(whenLabel(c.created_at))}</time></div>
+        ${canDelete ? `<button type="button" class="c-del" data-cdel="${esc(c.id)}" aria-label="apagar comentário"><svg width="16" height="16" class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>` : ''}
+      </li>`;
+    }).join('');
+    return more + (items ? `<ul class="clist">${items}</ul>` : '');
+  }
+
+  function commentsSection(post) {
+    const draft = state.drafts.get(post.id) || '';
+    return `<section class="comments" data-comments="${esc(post.id)}" aria-label="comentários">
+      <div class="c-body">${commentsBody(post)}</div>
+      <form class="cform" data-post="${esc(post.id)}" autocomplete="off">
+        <input type="text" maxlength="300" placeholder="escreve um comentário…" aria-label="escrever um comentário" autocapitalize="none" enterkeyhint="send" value="${esc(draft)}">
+        <button type="submit" class="send" aria-label="enviar comentário" ${draft.trim() ? '' : 'disabled'}><svg width="20" height="20" class="ico" aria-hidden="true"><use href="#i-send"/></svg></button>
+      </form>
+    </section>`;
+  }
+
+  function refreshComments(postId) {
+    const post = state.posts.find((p) => p.id === postId);
+    if (!post) return;
+    $$('[data-comments="' + postId + '"] .c-body').forEach((el) => { el.innerHTML = commentsBody(post); });
   }
 
   function renderMural() {
     const box = $('#view-mural');
     if (!state.posts.length) {
       box.innerHTML = state.lastLoad
-        ? emptyHtml('Ainda não há prints', 'Faz um teste de código e publica aqui o print do resultado.')
+        ? emptyHtml('ainda não há prints', 'faz um teste de código e publica aqui o print do resultado.', 'carro')
         : '';
       return;
     }
     const cards = state.posts.map((p) => {
       const who = personOf(p.user_id);
-      const alt = `Print de ${who.name}, ${whenLabel(p.created_at)}`;
+      const alt = `print de ${who.name}, ${whenLabel(p.created_at)}`;
       return `
-        <article class="post">
+        <article class="post card">
           <div class="post-head">
             ${avatarHtml(p.user_id)}
-            <div>
+            <div class="grow">
               <p class="who-name">${esc(who.name)}</p>
               <p class="post-time">${esc(whenLabel(p.created_at))}</p>
             </div>
+            ${scoreHtml(p.correct)}
           </div>
-          <button type="button" class="post-media" data-open="${esc(p.id)}" aria-label="Ver print em ponto grande">
+          <button type="button" class="post-media" data-open="${esc(p.id)}" aria-label="ver print em ponto grande">
             <img src="${esc(p.urlFull)}" alt="${esc(alt)}" loading="lazy" decoding="async">
           </button>
           ${p.note ? `<p class="post-note">${esc(p.note)}</p>` : ''}
+          ${commentsSection(p)}
         </article>`;
     }).join('');
     box.innerHTML = `<div class="feed">${cards}</div>` +
-      (state.hasMore ? '<button type="button" class="btn btn-ghost more" data-more>Ver mais antigos</button>' : '');
+      (state.hasMore ? '<button type="button" class="btn btn-ghost more" data-more>ver mais antigos</button>' : '');
   }
 
   function renderBiblioteca() {
@@ -304,15 +435,15 @@
 
     const chip = (id, label, count) =>
       `<button type="button" class="chip" data-filter="${esc(id)}" aria-pressed="${state.filter === id}">${esc(label)} (${count})</button>`;
-    const chips = `<div class="chips" role="group" aria-label="Filtrar por pessoa">` +
-      chip('all', 'Todas', state.posts.length) +
+    const chips = `<div class="chips" role="group" aria-label="filtrar por pessoa">` +
+      chip('all', 'todas', state.posts.length) +
       people.map((p) => chip(p.id, p.name, state.posts.filter((x) => x.user_id === p.id).length)).join('') +
       `</div>`;
 
     if (!filtered.length) {
       const msg = state.filter === 'all'
-        ? emptyHtml('A biblioteca está vazia', 'Os prints publicados ficam aqui, organizados por dia.')
-        : emptyHtml('Sem prints ainda', `${personOf(state.filter).name} ainda não publicou nenhum print.`);
+        ? emptyHtml('a biblioteca está vazia', 'os prints publicados ficam aqui, organizados por dia.', 'nuvem')
+        : emptyHtml('sem prints ainda', `${personOf(state.filter).name} ainda não publicou nenhum print.`, 'nuvem');
       box.innerHTML = chips + (state.lastLoad ? msg : '');
       return;
     }
@@ -330,14 +461,119 @@
       }
       const who = personOf(p.user_id);
       html += `
-        <button type="button" class="tile" data-open="${esc(p.id)}" aria-label="Print de ${esc(who.name)}, ${esc(whenLabel(p.created_at))}">
+        <button type="button" class="tile" data-open="${esc(p.id)}" aria-label="print de ${esc(who.name)}, ${esc(whenLabel(p.created_at))}${p.correct != null ? ', ' + p.correct + ' em 30' : ''}">
           <img src="${esc(p.urlThumb)}" alt="" loading="lazy" decoding="async">
           ${avatarHtml(p.user_id, 'avatar-sm')}
+          ${scoreHtml(p.correct)}
         </button>`;
     });
     if (open) html += '</div>';
-    if (state.hasMore) html += '<button type="button" class="btn btn-ghost more" data-more>Ver mais antigos</button>';
+    if (state.hasMore) html += '<button type="button" class="btn btn-ghost more" data-more>ver mais antigos</button>';
     box.innerHTML = html;
+  }
+
+  /* perfis ("nós"): streak, dias ativos e índice de preparação */
+  const tierOf = (r) => (r == null ? null : r >= 70 ? 'ok' : r >= 40 ? 'mid' : 'low');
+  const VERDICT = {
+    ok: 'pronta para o exame!',
+    mid: 'quase lá, continua!',
+    low: 'ainda a aquecer, vai treinando.'
+  };
+
+  function profileCard(p, today) {
+    const s = state.stats.get(p.id) || {};
+    const mine = p.id === state.user.id;
+    const streak = Number(s.streak) || 0;
+    const active = Number(s.active_days) || 0;
+    const best = Number(s.best_streak) || 0;
+    const tests = Number(s.tests) || 0;
+    const passed = Number(s.passed) || 0;
+    const avg = s.avg_correct == null ? null : Number(s.avg_correct);
+    const readiness = s.readiness == null ? null : Number(s.readiness);
+    const tier = tierOf(readiness);
+    const last14 = new Set(s.last14 || []);
+    const postedToday = s.last_active === today;
+
+    let dots = '';
+    for (let i = 13; i >= 0; i--) {
+      const key = addDays(today, -i);
+      const on = last14.has(key);
+      dots += `<span class="pd ${on ? 'on' : ''} ${i === 0 ? 'today' : ''}" title="${esc(key)}${on ? ' · ativa' : ''}">${on ? '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-check"/></svg>' : ''}</span>`;
+    }
+    const n14 = [...last14].length;
+    const note = !streak && !postedToday
+      ? (mine ? 'publica hoje para começares um streak!' : `${p.name} ainda não publicou hoje.`)
+      : streak && !postedToday
+        ? (mine ? 'publica hoje para não perderes o streak!' : `${p.name} ainda não publicou hoje.`)
+        : 'já publicou hoje.';
+
+    const idxVal = readiness == null ? '–' : String(readiness);
+    return `
+      <article class="pcard card">
+        <div class="pcard-top">
+          ${avatarHtml(p.id, 'avatar-xl')}
+          <div class="grow">
+            <h3 class="pname">${esc(p.name)}${mine ? ' <span class="me">(tu)</span>' : ''}</h3>
+            <p class="psub">${esc(plural(tests, 'teste com nota', 'testes com nota'))} · ${esc(plural(passed, 'aprovado', 'aprovados'))}</p>
+          </div>
+          <div class="pstreak ${streak ? '' : 'off'}">
+            <span class="n"><svg width="26" height="26" aria-hidden="true"><use href="#i-flame"/></svg>${streak}</span>
+            <span>${streak === 1 ? 'dia seguido' : 'dias seguidos'}</span>
+          </div>
+        </div>
+
+        <div>
+          <div class="pdays-label"><span>últimos 14 dias</span><span>${esc(plural(n14, 'dia ativo', 'dias ativos'))}</span></div>
+          <div class="pdays" role="img" aria-label="${esc(plural(n14, 'dia ativo', 'dias ativos'))} nos últimos 14 dias">${dots}</div>
+          <p class="small muted" style="margin-top:6px">${esc(note)}</p>
+        </div>
+
+        <div class="stats3">
+          <div class="stat"><b>${active}</b><span>${active === 1 ? 'dia ativo' : 'dias ativos'}</span></div>
+          <div class="stat"><b>${best}</b><span>melhor streak</span></div>
+          <div class="stat"><b>${avg == null ? '–' : String(avg).replace('.', ',')}</b><span>média /30</span></div>
+        </div>
+
+        <div>
+          <div class="index-top">
+            <h4 class="h3" style="margin:0">índice de preparação</h4>
+            <span class="index-val">${idxVal}<small> /100</small></span>
+          </div>
+          <div class="meter" role="img" aria-label="índice de preparação: ${readiness == null ? 'ainda sem nota' : readiness + ' em 100'}">
+            <div class="meter-fill ${tier || ''}" style="width:${readiness == null ? 0 : readiness}%"></div>
+            <div class="meter-mark"></div>
+          </div>
+          <div class="meter-scale" aria-hidden="true"><span style="left:0">0</span><span style="left:70%">70 · pronta</span><span style="right:0;left:auto;transform:none">100</span></div>
+          <p class="verdict ${tier || ''}">${esc(tier ? VERDICT[tier] : 'publica um teste com nota para teres índice.')}</p>
+        </div>
+
+        <button type="button" class="btn btn-ghost" data-user-prints="${esc(p.id)}">ver os prints de ${esc(p.name)}</button>
+      </article>`;
+  }
+
+  function renderPerfis() {
+    const box = $('#view-perfis');
+    const today = dayKey(new Date());
+    const people = Array.from(state.profiles.values())
+      .sort((a, b) => (b.id === state.user.id) - (a.id === state.user.id) || a.idx - b.idx);
+    box.innerHTML = `
+      <div class="people">
+        <div class="people-head">
+          <h2 class="h2">nós as duas <svg class="deco" width="22" height="22" aria-hidden="true"><use href="#i-heart"/></svg></h2>
+          <p class="small muted">um dia conta como ativo quando publicas pelo menos um print.</p>
+        </div>
+        ${people.map((p) => profileCard(p, today)).join('')}
+        <details class="how card" style="padding:6px 16px">
+          <summary>como funciona o índice?</summary>
+          <p>é um número de 0 a 100, a partir dos teus últimos 10 testes com nota. a partir de <strong>70</strong> estás pronta para o exame.</p>
+          <ul>
+            <li>60% vem da média de respostas certas (21 conta como 0 e 29 ou mais conta como o máximo);</li>
+            <li>40% vem da percentagem de testes com 27 ou mais certas (o mínimo para passar);</li>
+            <li>com menos de 10 testes o índice fica mais baixo: precisas de 10 testes para chegar aos 100.</li>
+          </ul>
+          <p class="small muted">é inspirado no índice do bom condutor, mas é calculado só com os vossos testes, por isso serve de guia e não de garantia.</p>
+        </details>
+      </div>`;
   }
 
   /* ------------------------------------------------ janelas */
@@ -355,17 +591,19 @@
     const who = personOf(post.user_id);
     state.openPostId = id;
     $('#view-img').src = post.urlFull;
-    $('#view-img').alt = `Print de ${who.name}, ${whenLabel(post.created_at)}`;
+    $('#view-img').alt = `print de ${who.name}, ${whenLabel(post.created_at)}`;
     $('#view-avatar').innerHTML = avatarHtml(post.user_id, 'avatar-lg');
     $('#view-title').textContent = who.name;
     $('#view-when').textContent = whenLabel(post.created_at);
+    $('#view-score').innerHTML = scoreHtml(post.correct);
     const note = $('#view-note');
     note.textContent = post.note || '';
     note.hidden = !post.note;
+    $('#view-comments').innerHTML = commentsSection(post);
     $('#view-open').href = post.urlFull;
     const del = $('#view-delete');
     del.hidden = post.user_id !== state.user.id;
-    del.textContent = 'Apagar';
+    del.textContent = 'apagar';
     del.dataset.armed = '';
     clearTimeout(deleteTimer);
     openDialog($('#dlg-view'));
@@ -375,36 +613,155 @@
     const del = $('#view-delete');
     if (del.dataset.armed !== '1') {
       del.dataset.armed = '1';
-      del.textContent = 'Apagar mesmo?';
+      del.textContent = 'apagar mesmo?';
       clearTimeout(deleteTimer);
-      deleteTimer = setTimeout(() => { del.dataset.armed = ''; del.textContent = 'Apagar'; }, 5000);
+      deleteTimer = setTimeout(() => { del.dataset.armed = ''; del.textContent = 'apagar'; }, 5000);
       return;
     }
     clearTimeout(deleteTimer);
     const post = state.posts.find((p) => p.id === state.openPostId);
     if (!post) return;
     del.disabled = true;
-    del.textContent = 'A apagar…';
+    del.textContent = 'a apagar…';
     try {
       const { error } = await sb.from('posts').delete().eq('id', post.id);
       if (error) throw error;
-      // Os ficheiros são apagados a seguir; se falhar, o print já saiu da lista.
+      // os ficheiros são apagados a seguir; se falhar, o print já saiu da lista
       await sb.storage.from(BUCKET).remove([post.image_path, post.thumb_path]).catch(() => {});
       state.posts = state.posts.filter((p) => p.id !== post.id);
+      state.comments.delete(post.id);
       closeDialog($('#dlg-view'));
       render();
-      toast('Print apagado.');
+      loadStats();
+      toast('print apagado.');
     } catch (err) {
       console.error(err);
-      toast('Não foi possível apagar. Tenta outra vez.');
-      del.textContent = 'Apagar';
+      toast('não foi possível apagar. tenta outra vez.');
+      del.textContent = 'apagar';
       del.dataset.armed = '';
     } finally {
       del.disabled = false;
     }
   }
 
+  /* ------------------------------------------------ comentar */
+  async function onCommentSubmit(form) {
+    const postId = form.dataset.post;
+    const input = $('input', form);
+    const btn = $('.send', form);
+    const body = input.value.replace(/\s+/g, ' ').trim();
+    if (!body || btn.disabled) return;
+    btn.disabled = true;
+    try {
+      const { data, error } = await sb
+        .from('comments')
+        .insert({ post_id: postId, user_id: state.user.id, body })
+        .select('id,post_id,user_id,body,created_at')
+        .single();
+      if (error) throw error;
+      const list = state.comments.get(postId) || [];
+      list.push(data);
+      state.comments.set(postId, list);
+      state.drafts.delete(postId);
+      $$('[data-comments="' + postId + '"] .cform').forEach((f) => { $('input', f).value = ''; $('.send', f).disabled = true; });
+      refreshComments(postId);
+    } catch (err) {
+      console.error(err);
+      toast('não foi possível comentar. tenta outra vez.');
+      btn.disabled = !input.value.trim();
+    }
+  }
+
+  function onCommentInput(input) {
+    const form = input.closest('.cform');
+    const postId = form.dataset.post;
+    state.drafts.set(postId, input.value);
+    $$('[data-comments="' + postId + '"] .cform').forEach((f) => {
+      const i = $('input', f);
+      if (i !== input) i.value = input.value;
+      $('.send', f).disabled = !input.value.trim();
+    });
+  }
+
+  async function onCommentDelete(btn) {
+    const cid = btn.dataset.cdel;
+    const icon = '<svg width="16" height="16" class="ico" aria-hidden="true"><use href="#i-x"/></svg>';
+    if (btn.dataset.armed !== '1') {
+      btn.dataset.armed = '1';
+      btn.textContent = 'apagar?';
+      clearTimeout(commentDelTimer);
+      commentDelTimer = setTimeout(() => { btn.dataset.armed = ''; btn.innerHTML = icon; }, 4000);
+      return;
+    }
+    clearTimeout(commentDelTimer);
+    btn.disabled = true;
+    try {
+      const { error } = await sb.from('comments').delete().eq('id', cid);
+      if (error) throw error;
+      state.comments.forEach((list, postId) => {
+        const next = list.filter((c) => c.id !== cid);
+        if (next.length !== list.length) { state.comments.set(postId, next); refreshComments(postId); }
+      });
+    } catch (err) {
+      console.error(err);
+      toast('não foi possível apagar o comentário.');
+      btn.disabled = false;
+      btn.dataset.armed = '';
+      btn.innerHTML = icon;
+    }
+  }
+
+  // devolve true se o toque era de comentários
+  function handleCommentClick(e) {
+    const more = e.target.closest('[data-expand]');
+    if (more) { state.expanded.add(more.dataset.expand); refreshComments(more.dataset.expand); return true; }
+    const del = e.target.closest('[data-cdel]');
+    if (del) { onCommentDelete(del); return true; }
+    return false;
+  }
+
   /* ------------------------------------------------ publicar */
+  function readScore() {
+    const v = $('#publish-score').value.trim();
+    if (!/^\d{1,2}$/.test(v)) return null;
+    const n = Number(v);
+    return n >= 0 && n <= 30 ? n : null;
+  }
+
+  function updatePublishUi() {
+    const n = readScore();
+    const hint = $('#score-hint');
+    hint.className = 'score-hint small';
+    if (n == null) {
+      hint.textContent = 'quantas respostas certas em 30?';
+    } else if (n >= PASS_MARK) {
+      hint.textContent = `passaste! ${n} certas em 30 (o mínimo são ${PASS_MARK}).`;
+      hint.classList.add('ok');
+    } else {
+      hint.textContent = `faltam ${PASS_MARK - n} certas para passar (o mínimo são ${PASS_MARK}).`;
+      hint.classList.add('low');
+    }
+    $('#btn-publish-submit').disabled = !(pickedFile && n != null);
+  }
+
+  function setScore(n) {
+    $('#publish-score').value = n == null ? '' : String(n);
+    updatePublishUi();
+  }
+
+  function stepScore(delta) {
+    const n = readScore();
+    setScore(n == null ? (delta > 0 ? PASS_MARK : PASS_MARK - 1) : Math.min(30, Math.max(0, n + delta)));
+  }
+
+  function onScoreInput() {
+    const input = $('#publish-score');
+    let v = input.value.replace(/\D/g, '').slice(0, 2);
+    if (v !== '' && Number(v) > 30) v = '30';
+    input.value = v;
+    updatePublishUi();
+  }
+
   function resetPublish() {
     pickedFile = null;
     if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
@@ -416,15 +773,15 @@
     $('#publish-note').value = '';
     showError($('#publish-error'), '');
     $('#publish-status').textContent = '';
-    $('#btn-publish-submit').disabled = true;
-    $('#btn-publish-submit').textContent = 'Publicar';
+    $('#btn-publish-submit').textContent = 'publicar';
+    setScore(null);
   }
 
   function onFilePicked() {
     const file = $('#file-input').files && $('#file-input').files[0];
     if (!file) return;
     if (!/^image\//.test(file.type)) {
-      showError($('#publish-error'), 'Escolhe uma imagem (por exemplo, o print do teste).');
+      showError($('#publish-error'), 'escolhe uma imagem (por exemplo, o print do teste).');
       return;
     }
     showError($('#publish-error'), '');
@@ -436,7 +793,7 @@
     img.hidden = false;
     $('#drop-empty').hidden = true;
     $('.drop').classList.add('has-image');
-    $('#btn-publish-submit').disabled = false;
+    updatePublishUi();
   }
 
   function loadImage(file) {
@@ -466,16 +823,20 @@
 
   async function onPublish(ev) {
     ev.preventDefault();
-    if (!pickedFile) return;
+    const score = readScore();
+    if (!pickedFile || score == null) {
+      if (pickedFile) showError($('#publish-error'), 'diz quantas respostas certas tiveste (de 0 a 30).');
+      return;
+    }
     const btn = $('#btn-publish-submit');
     const status = $('#publish-status');
     btn.disabled = true;
-    btn.textContent = 'A publicar…';
+    btn.textContent = 'a publicar…';
     showError($('#publish-error'), '');
     const uploaded = [];
 
     try {
-      status.textContent = 'A preparar a imagem…';
+      status.textContent = 'a preparar a imagem…';
       const img = await loadImage(pickedFile);
       const full = await toJpeg(img, 2000, 0.8);
       const thumb = await toJpeg(img, 480, 0.75);
@@ -484,7 +845,7 @@
       const imagePath = `${base}.jpg`;
       const thumbPath = `${base}_t.jpg`;
 
-      status.textContent = 'A enviar…';
+      status.textContent = 'a enviar…';
       const storage = sb.storage.from(BUCKET);
       let res = await storage.upload(imagePath, full, { contentType: 'image/jpeg', cacheControl: '3600', upsert: false });
       if (res.error) throw res.error;
@@ -498,22 +859,23 @@
         user_id: state.user.id,
         image_path: imagePath,
         thumb_path: thumbPath,
-        note: note || null
+        note: note || null,
+        correct: score
       });
       if (ins.error) throw ins.error;
 
       closeDialog($('#dlg-publish'));
       resetPublish();
-      toast('Publicado.');
+      toast(score >= PASS_MARK ? 'publicado! passaste neste, boa!' : 'publicado.');
       setView('mural');
       await loadPosts(true);
     } catch (err) {
       console.error(err);
       if (uploaded.length) sb.storage.from(BUCKET).remove(uploaded).catch(() => {});
-      showError($('#publish-error'), 'Não foi possível publicar. Verifica a ligação e tenta outra vez.');
+      showError($('#publish-error'), 'não foi possível publicar. verifica a ligação e tenta outra vez.');
       status.textContent = '';
       btn.disabled = false;
-      btn.textContent = 'Publicar';
+      btn.textContent = 'publicar';
     }
   }
 
@@ -522,15 +884,15 @@
     const msg = String((err && err.message) || '').toLowerCase();
     const code = String((err && err.code) || '');
     if (code === 'email_not_confirmed' || msg.includes('not confirmed')) {
-      return 'O email desta conta ainda não foi confirmado. Pede a quem criou as contas para a confirmar.';
+      return 'o email desta conta ainda não foi confirmado. pede a quem criou as contas para a confirmar.';
     }
     if (code === 'invalid_credentials' || msg.includes('invalid login')) {
-      return 'Email ou palavra-passe errados. Confirma e tenta outra vez.';
+      return 'email ou palavra-passe errados. confirma e tenta outra vez.';
     }
     if (navigator.onLine === false || msg.includes('fetch') || msg.includes('network')) {
-      return 'Sem ligação à internet. Tenta outra vez.';
+      return 'sem ligação à internet. tenta outra vez.';
     }
-    return 'Não foi possível entrar. Tenta outra vez.';
+    return 'não foi possível entrar. tenta outra vez.';
   }
 
   async function onLogin(ev) {
@@ -538,10 +900,10 @@
     const email = $('#login-email').value.trim();
     const password = $('#login-password').value;
     const errEl = $('#login-error');
-    if (!email || !password) { showError(errEl, 'Preenche o email e a palavra-passe.'); return; }
+    if (!email || !password) { showError(errEl, 'preenche o email e a palavra-passe.'); return; }
     const btn = $('#login-submit');
     btn.disabled = true;
-    btn.textContent = 'A entrar…';
+    btn.textContent = 'a entrar…';
     showError(errEl, '');
     try {
       const { data, error } = await sb.auth.signInWithPassword({ email, password });
@@ -552,7 +914,7 @@
       showError(errEl, authMessage(err));
     } finally {
       btn.disabled = false;
-      btn.textContent = 'Entrar';
+      btn.textContent = 'entrar';
     }
   }
 
@@ -562,19 +924,19 @@
     ev.preventDefault();
     const name = cleanName($('#name-input').value);
     const errEl = $('#name-error');
-    if (!name) { showError(errEl, 'Escreve o teu nome.'); return; }
+    if (!name) { showError(errEl, 'escreve o teu nome.'); return; }
     const btn = $('#name-submit');
     btn.disabled = true;
     showError(errEl, '');
     try {
-      const { error } = await sb.from('profiles').insert({ id: state.user.id, name });
+      const { error } = await sb.from('profiles').insert({ id: state.user.id, name, avatar: nameAvatar });
       // 23505 = o perfil já existia; seguimos em frente.
       if (error && error.code !== '23505') throw error;
       await loadProfiles();
       await startMain();
     } catch (err) {
       console.error(err);
-      showError(errEl, 'Não foi possível guardar o nome. Tenta outra vez.');
+      showError(errEl, 'não foi possível guardar. tenta outra vez.');
     } finally {
       btn.disabled = false;
     }
@@ -583,6 +945,8 @@
   function openMenu() {
     $('#menu-email').textContent = state.user.email || '';
     $('#menu-name').value = personOf(state.user.id).name;
+    menuAvatar = avatarKeyOf(state.user.id);
+    renderAvatarPicker($('#menu-avatars'), menuAvatar, (k) => { menuAvatar = k; });
     showError($('#menu-error'), '');
     $('#btn-install').hidden = !installPrompt;
     showError($('#notif-error'), '');
@@ -594,20 +958,20 @@
     ev.preventDefault();
     const name = cleanName($('#menu-name').value);
     const errEl = $('#menu-error');
-    if (!name) { showError(errEl, 'Escreve o teu nome.'); return; }
+    if (!name) { showError(errEl, 'escreve o teu nome.'); return; }
     const btn = $('#btn-menu-save');
     btn.disabled = true;
     try {
-      const { error } = await sb.from('profiles').update({ name }).eq('id', state.user.id);
+      const { error } = await sb.from('profiles').update({ name, avatar: menuAvatar }).eq('id', state.user.id);
       if (error) throw error;
       await loadProfiles();
       paintHeader();
       render();
       closeDialog($('#dlg-menu'));
-      toast('Nome guardado.');
+      toast('perfil guardado.');
     } catch (err) {
       console.error(err);
-      showError(errEl, 'Não foi possível guardar o nome. Tenta outra vez.');
+      showError(errEl, 'não foi possível guardar. tenta outra vez.');
     } finally {
       btn.disabled = false;
     }
@@ -691,20 +1055,20 @@
     const on = $('#btn-notif-on'), test = $('#btn-notif-test'), off = $('#btn-notif-off');
     on.hidden = test.hidden = off.hidden = true;
     if (st === 'ios-install') {
-      status.textContent = 'No iPhone, as notificações só funcionam com a app instalada: toca em Partilhar, depois em Adicionar ao ecrã principal, e abre a app a partir do ícone novo.';
+      status.textContent = 'no iphone, as notificações só funcionam com a app instalada: toca em partilhar, depois em adicionar ao ecrã principal, e abre a app a partir do ícone novo.';
     } else if (st === 'unsupported') {
-      status.textContent = 'Este navegador não suporta notificações.';
+      status.textContent = 'este navegador não suporta notificações.';
     } else if (st === 'denied') {
       status.textContent = isIos()
-        ? 'As notificações estão bloqueadas. Ativa-as em Definições do iPhone → Notificações → Rumo à Carta.'
-        : 'As notificações estão bloqueadas neste navegador. Ativa-as nas definições do site.';
+        ? 'as notificações estão bloqueadas. ativa-as em definições do iphone → notificações → rumo à carta.'
+        : 'as notificações estão bloqueadas neste navegador. ativa-as nas definições do site.';
     } else {
       const sub = st === 'granted' ? await currentPushSub() : null;
       if (sub) {
-        status.textContent = 'Ativas neste telemóvel. Recebes 3 a 5 lembretes por dia, entre as 07:00 e as 22:00.';
+        status.textContent = 'ativas neste telemóvel. recebes 3 a 5 lembretes por dia, entre as 07:00 e as 22:00, e um aviso quando comentarem um print teu.';
         test.hidden = false; off.hidden = false;
       } else {
-        status.textContent = 'Recebe 3 a 5 lembretes por dia (entre as 07:00 e as 22:00) para fazeres um teste e publicares o print.';
+        status.textContent = 'recebe 3 a 5 lembretes por dia (entre as 07:00 e as 22:00) para fazeres um teste e publicares o print, e um aviso quando comentarem um print teu.';
         on.hidden = false;
       }
     }
@@ -714,7 +1078,7 @@
     // O pedido de permissão tem de acontecer logo no toque, por isso vem primeiro.
     const perm = await Notification.requestPermission();
     if (perm !== 'granted') {
-      if (errEl) showError(errEl, 'Sem permissão não consigo enviar avisos. Podes mudar isto nas definições do telemóvel.');
+      if (errEl) showError(errEl, 'sem permissão não consigo enviar avisos. podes mudar isto nas definições do telemóvel.');
       return false;
     }
     try {
@@ -722,7 +1086,7 @@
       return true;
     } catch (err) {
       console.error(err);
-      if (errEl) showError(errEl, 'Não foi possível ativar. Confirma que a app está instalada no ecrã principal e tenta outra vez.');
+      if (errEl) showError(errEl, 'não foi possível ativar. confirma que a app está instalada no ecrã principal e tenta outra vez.');
       return false;
     }
   }
@@ -731,7 +1095,7 @@
     const btn = $('#btn-notif-on');
     btn.disabled = true;
     try {
-      if (await enableNotifications($('#notif-error'))) toast('Notificações ativadas.');
+      if (await enableNotifications($('#notif-error'))) toast('notificações ativadas.');
     } finally {
       btn.disabled = false;
       paintNotifBox();
@@ -749,10 +1113,10 @@
         await sub.unsubscribe();
         await sb.rpc('remove_push_subscription', { p_endpoint: endpoint });
       }
-      toast('Notificações desativadas neste telemóvel.');
+      toast('notificações desativadas neste telemóvel.');
     } catch (err) {
       console.error(err);
-      showError($('#notif-error'), 'Não foi possível desativar. Tenta outra vez.');
+      showError($('#notif-error'), 'não foi possível desativar. tenta outra vez.');
     } finally {
       btn.disabled = false;
       paintNotifBox();
@@ -767,10 +1131,10 @@
       const { data, error } = await sb.functions.invoke('push-sender', { body: { action: 'test' } });
       if (error) throw error;
       if (!data || !data.sent) throw new Error('nada enviado');
-      toast('Teste enviado. Deve chegar em segundos.');
+      toast('teste enviado. deve chegar em segundos.');
     } catch (err) {
       console.error(err);
-      showError($('#notif-error'), 'Não consegui enviar o teste. Tenta desativar e ativar outra vez.');
+      showError($('#notif-error'), 'não consegui enviar o teste. tenta desativar e ativar outra vez.');
     } finally {
       btn.disabled = false;
     }
@@ -787,7 +1151,7 @@
     btn.disabled = true;
     try {
       const ok = await enableNotifications(null);
-      toast(ok ? 'Notificações ativadas.' : 'Não foi possível ativar. Vê o menu da conta.');
+      toast(ok ? 'notificações ativadas.' : 'não foi possível ativar. vê o menu da conta.');
     } finally {
       btn.disabled = false;
       paintNotifTip();
@@ -855,7 +1219,7 @@
       $('#notif-tip').hidden = true;
       try { localStorage.setItem('rumo-notif-tip', '1'); } catch (e) { /* ignorar */ }
     });
-    // Toque numa notificação com a app já aberta: o service worker avisa-nos
+    // toque numa notificação com a app já aberta: o service worker avisa-nos
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', (e) => {
         if (e.data && e.data.type === 'novo') openNewPost();
@@ -872,13 +1236,17 @@
     $('#btn-new').addEventListener('click', openNewPost);
     $('#btn-pick').addEventListener('click', () => $('#file-input').click());
     $('#file-input').addEventListener('change', onFilePicked);
+    $('#publish-score').addEventListener('input', onScoreInput);
+    $('#score-minus').addEventListener('click', () => stepScore(-1));
+    $('#score-plus').addEventListener('click', () => stepScore(1));
     $('#btn-publish-cancel').addEventListener('click', () => { closeDialog($('#dlg-publish')); resetPublish(); });
     $('#dlg-publish').addEventListener('cancel', () => setTimeout(resetPublish, 0));
 
     $('#view-close').addEventListener('click', () => closeDialog($('#dlg-view')));
     $('#view-delete').addEventListener('click', onDeleteClick);
+    $('#dlg-view').addEventListener('click', handleCommentClick);
 
-    // Fechar as janelas ao tocar no fundo escurecido
+    // fechar as janelas ao tocar no fundo escurecido
     ['#dlg-publish', '#dlg-menu'].forEach((sel) => {
       const dlg = $(sel);
       dlg.addEventListener('click', (e) => {
@@ -886,8 +1254,11 @@
       });
     });
 
-    // Delegação: abrir print, filtros e "ver mais"
+    // delegação: abrir print, filtros, perfis, comentários e "ver mais"
     $('#main').addEventListener('click', (e) => {
+      if (handleCommentClick(e)) return;
+      const prints = e.target.closest('[data-user-prints]');
+      if (prints) { state.filter = prints.dataset.userPrints; setView('biblioteca'); return; }
       const open = e.target.closest('[data-open]');
       if (open) { openViewer(open.dataset.open); return; }
       const filter = e.target.closest('[data-filter]');
@@ -895,7 +1266,18 @@
       if (e.target.closest('[data-more]')) loadPosts(false);
     });
 
-    // Se um link privado expirar, volta a pedir a lista
+    // comentários: escrever e enviar (funciona no mural e no visualizador)
+    document.addEventListener('input', (e) => {
+      if (e.target.matches && e.target.matches('.cform input')) onCommentInput(e.target);
+    });
+    document.addEventListener('submit', (e) => {
+      const form = e.target.closest && e.target.closest('.cform');
+      if (!form) return;
+      e.preventDefault();
+      onCommentSubmit(form);
+    });
+
+    // se um link privado expirar, volta a pedir a lista
     document.addEventListener('error', (e) => {
       if (e.target && e.target.tagName === 'IMG' && state.user && e.target.closest('#main') && Date.now() - state.lastLoad > 30000) {
         loadPosts(true);
@@ -908,7 +1290,7 @@
       }
     });
 
-    window.addEventListener('offline', () => toast('Sem ligação à internet.'));
+    window.addEventListener('offline', () => toast('sem ligação à internet.'));
     window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; });
   }
 

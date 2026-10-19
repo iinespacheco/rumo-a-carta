@@ -4,12 +4,13 @@
 // atualizações aparecem logo que fizeres upload de ficheiros novos.
 // Também mostra as notificações (Web Push) e abre a app quando tocas nelas.
 
-const VERSION = 'rumo-v3';
+const VERSION = 'rumo-v4';
 const SHELL = [
   './',
   'index.html',
   'styles.css',
   'app.js',
+  'avatars.js',
   'config.js',
   'manifest.webmanifest',
   'icon-192.png',
@@ -62,8 +63,8 @@ self.addEventListener('push', (event) => {
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data ? event.data.text() : '' }; }
   // No iPhone todos os avisos recebidos têm de ser mostrados, por isso mostramos sempre.
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Rumo à Carta', {
-      body: data.body || 'Está na hora de um teste de código! 🚗',
+    self.registration.showNotification(data.title || 'rumo à carta', {
+      body: data.body || 'está na hora de um teste de código! 🚗',
       icon: 'icon-192.png',
       badge: 'icon-192.png',
       data: { url: data.url || './?novo=1' }
