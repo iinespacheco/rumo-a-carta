@@ -4,7 +4,7 @@
 // atualizações aparecem logo que fizeres upload de ficheiros novos.
 // Também mostra as notificações (Web Push) e abre a app quando tocas nelas.
 
-const VERSION = 'rumo-v4';
+const VERSION = 'rumo-v6';
 const SHELL = [
   './',
   'index.html',

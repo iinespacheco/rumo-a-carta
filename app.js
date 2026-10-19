@@ -10,8 +10,31 @@
   const STALE_MS = 60 * 1000;    // ao voltar à app, atualiza se passou mais de 1 minuto
   const PASS_MARK = 27;          // certas (em 30) para passar no exame
   const TZ = 'Europe/Lisbon';
+  const GOAL = 50;               // testes temáticos para ficar preparada num tema
+  const THEMES_STALE_MS = 20 * 1000;
 
-  const $ = (sel, root = document) => root.querySelector(sel);
+  // temas da categoria B, pela ordem do bom condutor (bomcondutor.pt)
+  const THEMES = [
+    { key: 'cedencia-de-passagem', name: 'cedência de passagem', sub: '' },
+    { key: 'circulacao-e-seguranca', name: 'circulação e segurança', sub: 'veículos em missão urgente de socorro' },
+    { key: 'classificacao', name: 'classificação', sub: 'constituintes, inspeções, pesos e dimensões, proteção de ambiente, equipamentos de segurança, acidente' },
+    { key: 'estado-fisico-do-condutor', name: 'estado físico do condutor', sub: 'álcool, drogas e medicamentos, sinais de obrigação' },
+    { key: 'iluminacao', name: 'iluminação', sub: 'passageiros e carga, condução defensiva e peões' },
+    { key: 'outras-manobras', name: 'outras manobras', sub: '' },
+    { key: 'paragem-e-estacionamento', name: 'paragem e estacionamento', sub: 'cruzamento de veículos' },
+    { key: 'sinais-de-indicacao', name: 'sinais de indicação', sub: '' },
+    { key: 'sinais-de-perigo', name: 'sinais de perigo', sub: '' },
+    { key: 'sinais-de-prescricao-especifica', name: 'sinais de prescrição específica', sub: 'sinais de cedência de passagem' },
+    { key: 'sinais-de-proibicao', name: 'sinais de proibição', sub: '' },
+    { key: 'sinalizacao-luminosa', name: 'sinalização luminosa', sub: 'marcas no pavimento e outra sinalização' },
+    { key: 'titulos-de-conducao', name: 'títulos de condução', sub: 'obtenção, revalidação, responsabilidade civil e criminal, contra-ordenações, cassação' },
+    { key: 'ultrapassagem', name: 'ultrapassagem', sub: '' },
+    { key: 'velocidade', name: 'velocidade', sub: '' },
+    { key: 'vias-de-transito', name: 'vias de trânsito', sub: 'condições ambientais adversas' }
+  ];
+  const THEME_BY_KEY = new Map(THEMES.map((t) => [t.key, t]));
+
+  const $ =(sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   const state = {
@@ -20,6 +43,9 @@
     posts: [],
     comments: new Map(),   // post_id -> [comentários, do mais antigo para o mais recente]
     stats: new Map(),      // user_id -> linha de profile_stats()
+    themes: new Map(),     // user_id -> Map(tema -> testes temáticos feitos)
+    themesAt: 0,
+    themesErr: false,
     expanded: new Set(),   // prints com todos os comentários à vista
     drafts: new Map(),     // post_id -> comentário por enviar
     hasMore: false,
@@ -180,6 +206,9 @@
     state.posts = [];
     state.comments = new Map();
     state.stats = new Map();
+    state.themes = new Map();
+    state.themesAt = 0;
+    state.themesErr = false;
     state.expanded = new Set();
     state.drafts = new Map();
     state.hasMore = false;
@@ -188,6 +217,7 @@
     closeDialog($('#dlg-view'));
     closeDialog($('#dlg-publish'));
     closeDialog($('#dlg-menu'));
+    closeDialog($('#dlg-dice'));
   }
 
   function showLoadError(err) {
@@ -279,7 +309,7 @@
     if (state.loading) return;
     state.loading = true;
     $('#btn-refresh').setAttribute('aria-busy', 'true');
-    if (reset) loadStats();
+    if (reset) { loadStats(); loadThemes(); }
     try {
       const from = reset ? 0 : state.posts.length;
       const { data, error } = await sb
@@ -333,11 +363,13 @@
     $('#view-mural').hidden = view !== 'mural';
     $('#view-biblioteca').hidden = view !== 'biblioteca';
     $('#view-perfis').hidden = view !== 'perfis';
+    $('#view-temas').hidden = view !== 'temas';
     $$('.tab').forEach((t) => {
       if (t.dataset.view === view) t.setAttribute('aria-current', 'page');
       else t.removeAttribute('aria-current');
     });
     render();
+    if (view === 'temas' && Date.now() - state.themesAt > THEMES_STALE_MS) loadThemes();
     window.scrollTo(0, 0);
   }
 
@@ -345,6 +377,7 @@
     if (!state.user) return;
     if (state.view === 'mural') renderMural();
     else if (state.view === 'biblioteca') renderBiblioteca();
+    else if (state.view === 'temas') renderTemas();
     else renderPerfis();
   }
 
@@ -472,7 +505,7 @@
     box.innerHTML = html;
   }
 
-  /* perfis ("nós"): streak, dias ativos e índice de preparação */
+  /* perfis: streak, dias ativos e índice de preparação */
   const tierOf = (r) => (r == null ? null : r >= 70 ? 'ok' : r >= 40 ? 'mid' : 'low');
   const VERDICT = {
     ok: 'pronta para o exame!',
@@ -559,21 +592,180 @@
     box.innerHTML = `
       <div class="people">
         <div class="people-head">
-          <h2 class="h2">nós as duas <svg class="deco" width="22" height="22" aria-hidden="true"><use href="#i-heart"/></svg></h2>
+          <h2 class="h2">as duas <svg class="deco" width="22" height="22" aria-hidden="true"><use href="#i-heart"/></svg></h2>
           <p class="small muted">um dia conta como ativo quando publicas pelo menos um print.</p>
         </div>
         ${people.map((p) => profileCard(p, today)).join('')}
-        <details class="how card" style="padding:6px 16px">
-          <summary>como funciona o índice?</summary>
-          <p>é um número de 0 a 100, a partir dos teus últimos 10 testes com nota. a partir de <strong>70</strong> estás pronta para o exame.</p>
-          <ul>
-            <li>60% vem da média de respostas certas (21 conta como 0 e 29 ou mais conta como o máximo);</li>
-            <li>40% vem da percentagem de testes com 27 ou mais certas (o mínimo para passar);</li>
-            <li>com menos de 10 testes o índice fica mais baixo: precisas de 10 testes para chegar aos 100.</li>
-          </ul>
-          <p class="small muted">é inspirado no índice do bom condutor, mas é calculado só com os vossos testes, por isso serve de guia e não de garantia.</p>
-        </details>
       </div>`;
+  }
+
+  /* ------------------------------------------------ temáticos (separados dos testes normais) */
+  const doneOf = (uid, key) => {
+    const m = state.themes.get(uid);
+    return Math.min(GOAL, (m && m.get(key)) || 0);
+  };
+  function setDone(uid, key, n) {
+    if (!state.themes.has(uid)) state.themes.set(uid, new Map());
+    state.themes.get(uid).set(key, n);
+  }
+  const readyCount = (uid) => THEMES.filter((t) => doneOf(uid, t.key) >= GOAL).length;
+  const totalDone = (uid) => THEMES.reduce((sum, t) => sum + doneOf(uid, t.key), 0);
+
+  async function loadThemes() {
+    try {
+      const { data, error } = await sb.from('theme_progress').select('user_id,theme,done');
+      if (error) throw error;
+      const m = new Map();
+      data.forEach((r) => {
+        if (!m.has(r.user_id)) m.set(r.user_id, new Map());
+        m.get(r.user_id).set(r.theme, Number(r.done) || 0);
+      });
+      state.themes = m;
+      state.themesErr = false;
+      state.themesAt = Date.now();
+    } catch (err) {
+      console.warn('temáticos', err);
+      state.themesErr = true;
+    }
+    if (state.user && state.view === 'temas') renderTemas();
+  }
+
+  function themeCard(t, me, others) {
+    const done = doneOf(me, t.key);
+    const ready = done >= GOAL;
+    const pct = done ? Math.max(6, Math.round((done / GOAL) * 100)) : 0;
+    const friends = others.map((o) => {
+      const d = doneOf(o.id, t.key);
+      return `<span class="tfriend" title="${esc(o.name)}: ${d} de ${GOAL}">${avatarHtml(o.id, 'avatar-xs')}<span><b>${d}</b>/${GOAL}</span>${d >= GOAL ? '<svg class="ico ico-bold" width="14" height="14" aria-hidden="true"><use href="#i-check"/></svg>' : ''}</span>`;
+    }).join('');
+    return `
+      <article class="theme card ${ready ? 'ready' : ''}" data-theme="${esc(t.key)}">
+        <div class="theme-top">
+          <div class="grow">
+            <h3 class="tname">${esc(t.name)}</h3>
+            ${t.sub ? `<p class="tsub">${esc(t.sub)}</p>` : ''}
+          </div>
+          <span class="tcount">${ready ? '<svg class="ico ico-bold" width="20" height="20" aria-hidden="true"><use href="#i-check"/></svg>' : ''}<b>${done}</b><small>/${GOAL}</small></span>
+        </div>
+        <div class="tbar" role="img" aria-label="${done} de ${GOAL} testes neste tema"><i class="${ready ? 'ok' : ''}" style="width:${ready ? 100 : pct}%"></i></div>
+        <div class="theme-bot">
+          <span class="tfriends">${friends}</span>
+          <span class="tbtns">
+            ${ready ? '<span class="tready">preparada!</span>' : ''}
+            <button type="button" class="tstep tminus" data-theme-minus="${esc(t.key)}" aria-label="menos um teste: ${esc(t.name)}" ${done ? '' : 'disabled'}><svg width="20" height="20" class="ico ico-bold" aria-hidden="true"><use href="#i-minus"/></svg></button>
+            <button type="button" class="tstep tplus" data-theme-plus="${esc(t.key)}" aria-label="mais um teste: ${esc(t.name)}" ${ready ? 'disabled' : ''}><svg width="22" height="22" class="ico ico-bold" aria-hidden="true"><use href="#i-plus"/></svg></button>
+          </span>
+        </div>
+      </article>`;
+  }
+
+  function renderTemas() {
+    const box = $('#view-temas');
+    const me = state.user.id;
+    const people = Array.from(state.profiles.values())
+      .sort((a, b) => (b.id === me) - (a.id === me) || a.idx - b.idx);
+    const others = people.filter((p) => p.id !== me);
+    const head = `
+      <div class="themes-head">
+        <div class="grow">
+          <h2 class="h2">temas</h2>
+          <p class="small muted">testes temáticos, à parte dos testes normais. aponta cada teste que fizeres; aos ${GOAL}, estás preparada nesse tema.</p>
+        </div>
+        <button type="button" class="dice-btn" id="btn-dice" aria-label="sortear um tema"><svg width="30" height="30" class="ico" aria-hidden="true"><use href="#i-dice"/></svg></button>
+      </div>`;
+    if (state.themesErr && !state.themes.size) {
+      box.innerHTML = `<div class="themes">${head}<div class="empty"><h2 class="h2">não foi possível carregar</h2><p>verifica a ligação e tenta outra vez.</p><button type="button" class="btn btn-ghost" data-retry-themes>tentar outra vez</button></div></div>`;
+      return;
+    }
+    const sum = people.map((p) => `
+      <div class="tsum-p">${avatarHtml(p.id, 'avatar-sm')}
+        <div><b>${esc(p.name)}${p.id === me ? ' (tu)' : ''}</b><span>${readyCount(p.id)}/${THEMES.length} temas</span><span>${esc(plural(totalDone(p.id), 'teste', 'testes'))}</span></div>
+      </div>`).join('');
+    box.innerHTML = `
+      <div class="themes">
+        ${head}
+        <div class="tsum">${sum}</div>
+        ${THEMES.map((t) => themeCard(t, me, others)).join('')}
+      </div>`;
+  }
+
+  async function bumpTheme(key, delta) {
+    const me = state.user.id;
+    const cur = doneOf(me, key);
+    const next = Math.min(GOAL, Math.max(0, cur + delta));
+    if (next === cur) return;
+    setDone(me, key, next);
+    if (state.view === 'temas') renderTemas();
+    if ($('#dlg-dice').open) paintDice();
+    try {
+      const { error } = await sb.rpc('theme_bump', { p_theme: key, p_delta: next - cur });
+      if (error) throw error;
+      state.themesAt = Date.now();
+      if (next >= GOAL && cur < GOAL) toast('preparada em ' + THEME_BY_KEY.get(key).name + '!');
+    } catch (err) {
+      console.error(err);
+      toast('não foi possível guardar. tenta outra vez.');
+      loadThemes();
+    }
+  }
+
+  /* dado: sorteia um tema que ainda não esteja preparado */
+  let diceKey = null;
+  let diceTimer = null;
+
+  function pickTheme() {
+    const me = state.user.id;
+    let pool = THEMES.filter((t) => doneOf(me, t.key) < GOAL);
+    if (!pool.length) pool = THEMES.slice();
+    if (pool.length > 1 && diceKey) pool = pool.filter((t) => t.key !== diceKey);
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
+  function paintDice() {
+    const t = THEME_BY_KEY.get(diceKey);
+    if (!t) return;
+    const me = state.user.id;
+    const done = doneOf(me, t.key);
+    const all = THEMES.every((x) => doneOf(me, x.key) >= GOAL);
+    $('#dice-result').innerHTML = `
+      <p class="dr-label">${all ? 'já estás preparada em todos! que tal rever este?' : 'calhou-te'}</p>
+      <h3 class="dr-name">${esc(t.name)}</h3>
+      ${t.sub ? `<p class="dr-sub">${esc(t.sub)}</p>` : ''}
+      <p class="dr-prog">${done >= GOAL ? 'preparada neste tema!' : `${done}/${GOAL} neste tema`}</p>`;
+    $('#dice-plus').disabled = done >= GOAL;
+    $('#dice-plus').hidden = false;
+  }
+
+  function rollDice() {
+    const result = $('#dice-result');
+    const face = $('#dice-face');
+    clearInterval(diceTimer);
+    const final = pickTheme();
+    $('#dice-plus').disabled = true;
+    $('#dice-again').disabled = true;
+    face.classList.add('rolling');
+    result.innerHTML = '<p class="dr-label">a sortear…</p><h3 class="dr-name roll">&nbsp;</h3>';
+    let n = 0;
+    diceTimer = setInterval(() => {
+      n += 1;
+      if (n < 9) {
+        const r = THEMES[Math.floor(Math.random() * THEMES.length)];
+        result.innerHTML = `<p class="dr-label">a sortear…</p><h3 class="dr-name roll">${esc(r.name)}</h3>`;
+        return;
+      }
+      clearInterval(diceTimer);
+      face.classList.remove('rolling');
+      diceKey = final.key;
+      paintDice();
+      $('#dice-again').disabled = false;
+    }, 90);
+  }
+
+  function openDice() {
+    if (!state.user) return;
+    diceKey = null;
+    openDialog($('#dlg-dice'));
+    rollDice();
   }
 
   /* ------------------------------------------------ janelas */
@@ -1242,12 +1434,17 @@
     $('#btn-publish-cancel').addEventListener('click', () => { closeDialog($('#dlg-publish')); resetPublish(); });
     $('#dlg-publish').addEventListener('cancel', () => setTimeout(resetPublish, 0));
 
+    $('#dice-again').addEventListener('click', rollDice);
+    $('#dice-plus').addEventListener('click', () => { if (diceKey) bumpTheme(diceKey, 1); });
+    $('#dice-close').addEventListener('click', () => closeDialog($('#dlg-dice')));
+    $('#dlg-dice').addEventListener('close', () => clearInterval(diceTimer));
+
     $('#view-close').addEventListener('click', () => closeDialog($('#dlg-view')));
     $('#view-delete').addEventListener('click', onDeleteClick);
     $('#dlg-view').addEventListener('click', handleCommentClick);
 
     // fechar as janelas ao tocar no fundo escurecido
-    ['#dlg-publish', '#dlg-menu'].forEach((sel) => {
+    ['#dlg-publish', '#dlg-menu', '#dlg-dice'].forEach((sel) => {
       const dlg = $(sel);
       dlg.addEventListener('click', (e) => {
         if (e.target === dlg) { closeDialog(dlg); if (sel === '#dlg-publish') resetPublish(); }
@@ -1257,6 +1454,12 @@
     // delegação: abrir print, filtros, perfis, comentários e "ver mais"
     $('#main').addEventListener('click', (e) => {
       if (handleCommentClick(e)) return;
+      const plus = e.target.closest('[data-theme-plus]');
+      if (plus) { bumpTheme(plus.dataset.themePlus, 1); return; }
+      const minus = e.target.closest('[data-theme-minus]');
+      if (minus) { bumpTheme(minus.dataset.themeMinus, -1); return; }
+      if (e.target.closest('#btn-dice')) { openDice(); return; }
+      if (e.target.closest('[data-retry-themes]')) { loadThemes(); return; }
       const prints = e.target.closest('[data-user-prints]');
       if (prints) { state.filter = prints.dataset.userPrints; setView('biblioteca'); return; }
       const open = e.target.closest('[data-open]');
