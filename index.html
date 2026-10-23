@@ -27,6 +27,10 @@
       <symbol id="i-us" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.3"/><circle cx="17.2" cy="9.6" r="2.6"/><path d="M3.2 19.5c.6-3.4 3-5.3 5.8-5.3s5.2 1.9 5.8 5.3z"/><path d="M15.6 14.6c.5-.2 1-.3 1.6-.3 2.2 0 3.6 1.4 4.1 4.3"/></symbol>
       <symbol id="i-list" viewBox="0 0 24 24"><path d="M10 6.5h10.5M10 12h10.5M10 17.5h10.5"/><path d="M3.6 6.6l1.3 1.3 2.5-2.7M3.6 12.1l1.3 1.3 2.5-2.7M3.6 17.6l1.3 1.3 2.5-2.7"/></symbol>
       <symbol id="i-dice" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><g fill="currentColor" stroke="none"><circle cx="8.6" cy="8.6" r="1.35"/><circle cx="15.4" cy="8.6" r="1.35"/><circle cx="12" cy="12" r="1.35"/><circle cx="8.6" cy="15.4" r="1.35"/><circle cx="15.4" cy="15.4" r="1.35"/></g></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.6 2H4.4z"/><path d="M10 21a2.2 2.2 0 0 0 4 0"/></symbol>
+      <symbol id="i-sticker" viewBox="0 0 24 24"><path d="M5 3.5h14a1.5 1.5 0 0 1 1.5 1.5v9.5L14.5 20.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5z"/><path d="M20.4 14.5h-4.9a1 1 0 0 0-1 1v5"/><circle cx="9" cy="9.5" r=".9" fill="currentColor"/><circle cx="14.5" cy="9.5" r=".9" fill="currentColor"/><path d="M8.6 13.4c1.5 1.5 4.3 1.5 5.8 0" /></symbol>
+      <symbol id="i-reply" viewBox="0 0 24 24"><path d="M9.5 6L4 11.5 9.5 17"/><path d="M4.5 11.5H15a5 5 0 0 1 5 5V19"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.8h5V7M6.5 7l.8 12.2h9.4L17.5 7"/></symbol>
       <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="3"/><path d="M4 8l8 5.6L20 8"/></symbol>
       <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15.5" r="4"/><path d="M11 12.6L19.5 4.5M16 8l2.5 2.5M18.6 5.4l1.6 1.6"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
@@ -116,6 +120,10 @@
       <div class="top-inner">
         <h1 class="brand">rumo à carta</h1>
         <span class="streak-pill" id="hdr-streak" hidden title="dias seguidos com prints"><svg width="22" height="22" aria-hidden="true"><use href="#i-flame"/></svg><b id="hdr-streak-n">0</b></span>
+        <button type="button" class="icon-btn bell-btn" id="btn-bell" aria-label="notificações">
+          <svg width="23" height="23" class="ico" aria-hidden="true"><use href="#i-bell"/></svg>
+          <span class="badge" id="bell-badge" hidden>0</span>
+        </button>
         <button type="button" class="icon-btn" id="btn-refresh" aria-label="atualizar">
           <svg width="22" height="22" class="ico" aria-hidden="true"><use href="#i-refresh"/></svg>
         </button>
@@ -137,8 +145,9 @@
       </div>
       <section id="view-mural" aria-label="mural"></section>
       <section id="view-biblioteca" aria-label="biblioteca" hidden></section>
-      <section id="view-perfis" aria-label="perfis" hidden></section>
       <section id="view-temas" aria-label="testes temáticos" hidden></section>
+      <section id="view-perfis" aria-label="perfis" hidden></section>
+      <section id="view-avisos" aria-label="notificações" hidden></section>
     </main>
 
     <nav class="nav" aria-label="navegação principal">
@@ -150,11 +159,11 @@
           <button type="button" class="tab" data-view="biblioteca">
             <svg width="24" height="24" class="ico" aria-hidden="true"><use href="#i-lib"/></svg><span>biblioteca</span>
           </button>
-          <button type="button" class="tab" data-view="perfis">
-            <svg width="24" height="24" class="ico" aria-hidden="true"><use href="#i-us"/></svg><span>perfis</span>
-          </button>
           <button type="button" class="tab" data-view="temas">
             <svg width="24" height="24" class="ico" aria-hidden="true"><use href="#i-list"/></svg><span>temas</span>
+          </button>
+          <button type="button" class="tab" data-view="perfis">
+            <svg width="24" height="24" class="ico" aria-hidden="true"><use href="#i-us"/></svg><span>perfis</span>
           </button>
         </div>
         <button type="button" class="fab" id="btn-new" aria-label="publicar print">
@@ -201,6 +210,9 @@
         <button type="button" class="btn btn-ghost" id="btn-publish-cancel">cancelar</button>
         <button type="submit" class="btn btn-primary" id="btn-publish-submit" disabled>publicar</button>
       </div>
+      <button type="button" class="btn btn-ghost btn-wide" id="btn-publish-sticker">
+        <svg width="22" height="22" class="ico" aria-hidden="true"><use href="#i-sticker"/></svg>publicar um sticker
+      </button>
     </form>
   </dialog>
 
@@ -221,9 +233,55 @@
       <p id="view-note" class="viewer-note" hidden></p>
       <div id="view-comments"></div>
       <div class="actions viewer-actions">
+        <button type="button" class="btn btn-ghost" id="view-sticker" hidden>fazer sticker</button>
         <a class="btn btn-ghost" id="view-open" target="_blank" rel="noopener">abrir imagem</a>
         <button type="button" class="btn btn-danger" id="view-delete" hidden>apagar</button>
         <button type="button" class="btn btn-blue" id="view-close">fechar</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- álbum de stickers -->
+  <dialog id="dlg-stickers" aria-labelledby="stk-title">
+    <div class="sheet">
+      <div class="stk-head">
+        <h2 id="stk-title" class="h2">stickers</h2>
+        <button type="button" class="btn btn-ghost stk-manage" id="stk-manage" aria-pressed="false">apagar</button>
+      </div>
+      <p class="small muted" id="stk-hint"></p>
+      <div class="stk-grid" id="stk-grid"></div>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="stk-close">fechar</button>
+        <button type="button" class="btn btn-primary" id="stk-send" hidden disabled>publicar no mural</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- criar um sticker: recortar um quadrado -->
+  <dialog id="dlg-maker" aria-labelledby="maker-title">
+    <div class="sheet">
+      <h2 id="maker-title" class="h2">novo sticker</h2>
+      <input type="file" id="maker-file" accept="image/*" hidden>
+      <div class="maker-wrap">
+        <div class="maker-frame" id="maker-frame" aria-label="arrasta para enquadrar o sticker" role="img">
+          <img id="maker-img" alt="" draggable="false" hidden>
+          <button type="button" class="maker-empty" id="maker-empty">
+            <svg width="34" height="34" class="ico" aria-hidden="true"><use href="#i-image"/></svg>
+            <strong>escolher a imagem</strong>
+          </button>
+        </div>
+      </div>
+      <label class="maker-zoom" id="maker-zoom-box" hidden>
+        <svg width="20" height="20" class="ico" aria-hidden="true"><use href="#i-minus"/></svg>
+        <input type="range" id="maker-zoom" min="1" max="4" step="0.01" value="1" aria-label="aproximar">
+        <svg width="20" height="20" class="ico" aria-hidden="true"><use href="#i-plus"/></svg>
+      </label>
+      <p class="small muted" id="maker-hint">escolhe uma imagem, arrasta para enquadrar e aproxima com a barra. fica um quadradinho pequeno.</p>
+      <p class="form-error" id="maker-error" role="alert" hidden></p>
+      <div class="actions">
+        <button type="button" class="btn btn-ghost" id="maker-cancel">cancelar</button>
+        <button type="button" class="btn btn-ghost" id="maker-other" hidden>outra imagem</button>
+        <button type="button" class="btn btn-primary" id="maker-save" disabled>guardar no álbum</button>
       </div>
     </div>
   </dialog>

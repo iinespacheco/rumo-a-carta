@@ -163,7 +163,7 @@ body:has(#screen-login:not([hidden])) { background-color: #fffdf8; }
   border-bottom: 1px solid var(--line);
 }
 .top-inner { max-width: var(--col); margin: 0 auto; display: flex; align-items: center; gap: 6px; }
-.brand { flex: 1; font-size: clamp(17px, 5.8vw, 26px); line-height: 1.1; letter-spacing: -.01em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+.brand { flex: 1; font-size: clamp(15px, 4.7vw, 26px); line-height: 1.1; letter-spacing: -.01em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
 .icon-btn {
   width: 44px; height: 44px; border: 0; border-radius: 50%;
   background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer;
@@ -509,6 +509,121 @@ dialog[open] ~ .toast { bottom: 24px; }
   .pill { padding: 4px; gap: 1px; }
   .fab { width: 56px; height: 56px; }
 }
+
+/* ------------------------------------------------ fase 5: sino, respostas, stickers */
+.btn-sm { min-height: 40px; padding: 0 16px; font-size: 15px; border-radius: 22px; }
+.btn-wide { width: 100%; }
+.sec { font-family: var(--display); font-weight: 700; font-size: 16px; color: var(--muted); margin: 18px 0 8px; }
+
+/* sino */
+.bell-btn { position: relative; }
+.bell-btn[aria-current="page"] { background: var(--blue-soft); }
+.badge {
+  position: absolute; top: -3px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 10px; background: var(--red); color: var(--cream);
+  font-family: var(--display); font-weight: 700; font-size: 11px; line-height: 16px; text-align: center;
+  border: 2px solid var(--cream); box-sizing: content-box; pointer-events: none;
+}
+
+/* ecrã das notificações */
+.av-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; flex-wrap: wrap; }
+.notices { display: flex; flex-direction: column; gap: 10px; }
+.notice {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--wobble-sm); box-shadow: var(--soft);
+}
+.notice.reminder:not(.read) { background: var(--butter); border-color: rgba(43, 58, 85, .2); }
+.notice.read { opacity: .72; box-shadow: none; }
+.notice-ico {
+  flex: none; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--blue-soft); color: var(--ink);
+}
+.notice.reminder .notice-ico { background: var(--red-soft); color: var(--red); }
+.notice-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.notice-text { overflow-wrap: anywhere; line-height: 1.35; }
+.notice-meta { font-size: 13px; color: var(--muted); }
+.notice-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+/* respostas */
+.cthread { display: flex; flex-direction: column; gap: 6px; }
+.creplies { display: flex; flex-direction: column; gap: 6px; margin-left: 20px; padding-left: 10px; border-left: 2px solid var(--line); }
+.citem.reply .avatar-xs { width: 24px; height: 24px; }
+.cmeta { display: flex; align-items: center; gap: 14px; }
+.c-reply {
+  border: 0; background: none; padding: 4px 0; min-height: 28px; cursor: pointer;
+  color: var(--muted); font-weight: 800; font-size: 13px;
+}
+.c-reply:active { color: var(--red); }
+.cto { font-size: 13px; color: var(--muted); font-weight: 700; margin-right: 6px; }
+.rchip {
+  display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 12px;
+  background: var(--blue-soft); border-radius: 18px; font-size: 14px;
+}
+.rchip span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rchip button { flex: none; width: 32px; height: 32px; border: 0; border-radius: 50%; background: none; color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.c-chip:empty { display: none; }
+.cbubble.has-sticker { background: none; padding: 2px 4px; }
+.citem.mine .cbubble.has-sticker { background: none; }
+.csticker { display: block; width: 96px; height: 96px; object-fit: cover; margin-top: 4px; background: var(--cream-2); }
+.stk-btn {
+  flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--cream-2); color: var(--ink);
+  display: grid; place-items: center; cursor: pointer;
+}
+.stk-btn:active { background: var(--blue-soft); }
+
+/* stickers no mural: pequenos, quadrados, sem pontuação */
+.sticker-post .post-media.sticker-media {
+  width: 160px; min-height: 0; margin: 0 auto; border: 0; border-radius: 0; cursor: zoom-in; background: none;
+}
+.sticker-post .post-media.sticker-media img { width: 160px; height: auto; aspect-ratio: 1 / 1; max-height: none; object-fit: cover; }
+
+/* álbum de stickers */
+.stk-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.stk-manage { min-height: 40px; padding: 0 16px; font-size: 15px; }
+.stk-manage[aria-pressed="true"] { background: var(--red-soft); border-color: rgba(182, 58, 58, .4); color: var(--red); }
+.stk-grid { max-height: 52dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.stk-grid .sec:first-child { margin-top: 0; }
+.stk-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.stk-tile {
+  position: relative; aspect-ratio: 1; padding: 0; border: 2px solid transparent; border-radius: 0;
+  background: var(--cream-2); cursor: pointer; overflow: hidden; display: block;
+}
+.stk-tile img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.stk-tile.sel { border-color: var(--red); }
+.stk-tile.dim { opacity: .4; }
+.stk-tile.manage { border-color: rgba(182, 58, 58, .4); }
+.stk-tile.armed { border-color: var(--red); }
+.stk-x {
+  position: absolute; right: 3px; top: 3px; min-width: 24px; height: 24px; padding: 0 6px; border-radius: 12px;
+  background: var(--red); color: var(--cream); font-size: 13px; font-weight: 800; line-height: 24px; text-align: center;
+}
+.stk-new {
+  border: 2px dashed var(--edge); background: var(--card); color: var(--muted);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-weight: 800; font-size: 14px;
+}
+
+/* criar sticker */
+.maker-wrap { display: flex; justify-content: center; }
+.maker-frame {
+  position: relative; width: min(100%, 300px); aspect-ratio: 1; overflow: hidden;
+  background: var(--cream-2); border: 1.5px solid var(--edge); border-radius: 0;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.maker-frame img { position: absolute; left: 0; top: 0; max-width: none; transform-origin: 0 0; pointer-events: none; -webkit-user-drag: none; }
+.maker-empty {
+  position: absolute; inset: 0; width: 100%; border: 0; background: none; color: var(--muted); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: 15px;
+}
+.maker-zoom { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.maker-zoom input { flex: 1; min-width: 0; accent-color: var(--red); height: 32px; }
+
+/* cabeçalho com sino: em ecrãs estreitos os botões ficam mais juntos */
+@media (max-width: 400px) {
+  .top-inner { gap: 2px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .badge { top: -3px; right: -4px; }
+}
+@media (max-width: 340px) { #btn-refresh { display: none; } }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

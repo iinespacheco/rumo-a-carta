@@ -4,7 +4,7 @@
 // atualizações aparecem logo que fizeres upload de ficheiros novos.
 // Também mostra as notificações (Web Push) e abre a app quando tocas nelas.
 
-const VERSION = 'rumo-v6';
+const VERSION = 'rumo-v7';
 const SHELL = [
   './',
   'index.html',
@@ -76,11 +76,13 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = new URL((event.notification.data && event.notification.data.url) || './?novo=1', self.registration.scope);
   const wantsNew = target.searchParams.has('novo');
+  const verId = target.searchParams.get('ver');
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
       for (const client of list) {
         if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
           if (wantsNew) client.postMessage({ type: 'novo' });
+          if (verId) client.postMessage({ type: 'ver', id: verId });
           return client.focus();
         }
       }
