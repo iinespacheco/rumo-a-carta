@@ -691,7 +691,6 @@
     box.innerHTML = `
       <div class="people">
         <div class="people-head">
-          <h2 class="h2">as duas <svg class="deco" width="22" height="22" aria-hidden="true"><use href="#i-heart"/></svg></h2>
           <p class="small muted">um dia conta como ativo quando publicas pelo menos um print.</p>
         </div>
         ${people.map((p) => profileCard(p, today)).join('')}
